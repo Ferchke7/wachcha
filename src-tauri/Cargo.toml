@@ -1,0 +1,63 @@
+[package]
+name = "wachcha"
+version = "0.0.1"
+description = "Wachcha open-source cross-platform media center"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Ferchke7/wachcha"
+homepage = "https://ferchke7.github.io/wachcha/"
+
+[lib]
+name = "wachcha_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = ["tauri-ui"]
+tauri-ui = [
+  "dep:tauri",
+  "dep:tauri-plugin-opener",
+  "dep:tauri-plugin-notification",
+  "dep:tauri-build",
+]
+
+[build-dependencies]
+serde_json = "1"
+tauri-build = { version = "2", features = [], optional = true }
+
+[dependencies]
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-notification = { version = "2", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "time", "macros", "net", "io-util", "fs", "rt-multi-thread"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json", "gzip", "socks"] }
+regex = "1"
+url = "2"
+rand = "0.9"
+base64 = "0.22"
+quick-xml = "0.37"
+futures-util = "0.3"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+sha2 = "0.10"
+
+[target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "android"))'.dependencies]
+libloading = "0.8"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Power"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
+[profile.dev]
+debug = 1
+incremental = false

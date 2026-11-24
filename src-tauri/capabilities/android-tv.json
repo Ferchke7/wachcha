@@ -1,0 +1,14 @@
+{
+  "identifier": "android-tv",
+  "description": "Android and Android TV 10-foot navigation, playback, and HTTPS opener permissions",
+  "platforms": ["android"],
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://*" }]
+    }
+  ]
+}

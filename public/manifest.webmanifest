@@ -1,0 +1,16 @@
+{
+  "name": "Wachcha — Open Media Center",
+  "short_name": "Wachcha",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#090612",
+  "theme_color": "#7C3AED",
+  "icons": [
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

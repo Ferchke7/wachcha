@@ -1,0 +1,238 @@
+name: Build Multi-Platform Packages
+on:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            config: src-tauri/tauri.windows.conf.json
+          - id: macos
+            os: macos-latest
+            target: aarch64-apple-darwin
+            config: src-tauri/tauri.macos.conf.json
+          - id: linux
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            config: src-tauri/tauri.linux.conf.json
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install Linux system libraries
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libmpv-dev rpm
+
+      - run: npm ci
+
+      - name: Build Tauri desktop bundle
+        env:
+          NO_STRIP: true
+        run: npx tauri build --target ${{ matrix.target }} --config ${{ matrix.config }}
+
+      - name: Collect normalized Windows release assets
+        if: matrix.id == 'windows'
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $out = "release-assets"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $bundle = "src-tauri/target/${{ matrix.target }}/release/bundle"
+
+          $nsis = Get-ChildItem "$bundle/nsis" -Filter "*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($nsis) { Copy-Item $nsis.FullName "$out/Wachcha-$version-windows-x64-setup.exe" }
+
+          $msi = Get-ChildItem "$bundle/msi" -Filter "*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msi) { Copy-Item $msi.FullName "$out/Wachcha-$version-windows-x64.msi" }
+
+          $exe = "src-tauri/target/${{ matrix.target }}/release/wachcha.exe"
+          if (Test-Path $exe) {
+            $stage = "portable-stage"
+            New-Item -ItemType Directory -Force -Path $stage | Out-Null
+            Copy-Item $exe "$stage/Wachcha.exe"
+            Copy-Item "LICENSE" "$stage/LICENSE"
+            Copy-Item "README.md" "$stage/README.md"
+            Compress-Archive -Path "$stage/*" -DestinationPath "$out/Wachcha-$version-windows-x64-portable.zip" -Force
+          }
+          Get-ChildItem $out
+
+      - name: Collect normalized macOS release assets
+        if: matrix.id == 'macos'
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p release-assets
+          BUNDLE="src-tauri/target/${{ matrix.target }}/release/bundle"
+          DMG=$(find "$BUNDLE/dmg" -maxdepth 1 -name "*.dmg" | head -n 1 || true)
+          if [ -n "$DMG" ]; then
+            cp "$DMG" "release-assets/Wachcha-${VERSION}-macos-arm64.dmg"
+          fi
+          ls -lh release-assets
+
+      - name: Collect normalized Linux release assets
+        if: matrix.id == 'linux'
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p release-assets
+          BUNDLE="src-tauri/target/${{ matrix.target }}/release/bundle"
+          APPIMAGE=$(find "$BUNDLE/appimage" -maxdepth 1 -name "*.AppImage" | head -n 1 || true)
+          DEB=$(find "$BUNDLE/deb" -maxdepth 1 -name "*.deb" | head -n 1 || true)
+          RPM=$(find "$BUNDLE/rpm" -maxdepth 1 -name "*.rpm" | head -n 1 || true)
+          [ -n "$APPIMAGE" ] && cp "$APPIMAGE" "release-assets/Wachcha-${VERSION}-linux-x64.AppImage"
+          [ -n "$DEB" ] && cp "$DEB" "release-assets/Wachcha-${VERSION}-linux-x64.deb"
+          [ -n "$RPM" ] && cp "$RPM" "release-assets/Wachcha-${VERSION}-linux-x64.rpm"
+          ls -lh release-assets
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.id }}
+          path: release-assets/
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Configure Android SDK and NDK
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          NDK_DIR=$(ls -d "$SDK_ROOT"/ndk/* 2>/dev/null | sort -V | tail -n 1 || true)
+          if [ -z "$NDK_DIR" ]; then
+            yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+            "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "build-tools;35.0.0" "platforms;android-35"
+            NDK_DIR="$SDK_ROOT/ndk/27.2.12479018"
+          fi
+          BUILD_TOOLS=$(ls -d "$SDK_ROOT"/build-tools/* 2>/dev/null | sort -V | tail -n 1)
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "$BUILD_TOOLS" >> "$GITHUB_PATH"
+          echo "Using SDK=$SDK_ROOT NDK=$NDK_DIR BUILD_TOOLS=$BUILD_TOOLS"
+
+      - run: npm ci
+
+      - name: Initialize Tauri Android project with icons and Android TV Leanback
+        run: |
+          npx tauri android init --ci
+          npx tauri icon src-tauri/icons/app-icon.png
+          node scripts/patch-android-tv.mjs
+
+      - name: Build Android & Android TV APKs (Universal + ARM64)
+        run: |
+          npx tauri android build --apk --ci --target aarch64 --target armv7 --target x86_64
+          npx tauri android build --apk --split-per-abi --ci --target aarch64
+
+      - name: Align and sign release APKs
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASS: ${{ secrets.ANDROID_KEY_PASS }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p release-assets
+
+          KEYSTORE_PATH="/tmp/wachcha-release.jks"
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+            KS_PASS="$ANDROID_KEYSTORE_PASS"
+            KEY_ALIAS="$ANDROID_KEY_ALIAS"
+            KEY_PASS="$ANDROID_KEY_PASS"
+          else
+            KS_PASS="wachcha-open-source"
+            KEY_ALIAS="wachcha"
+            KEY_PASS="wachcha-open-source"
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE_PATH" \
+              -storetype PKCS12 \
+              -alias "$KEY_ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$KS_PASS" -keypass "$KEY_PASS" \
+              -dname "CN=Wachcha, OU=Open Source, O=Wachcha Contributors, L=Global, S=Global, C=US"
+          fi
+
+          sign_apk() {
+            local src="$1"
+            local dst="$2"
+            local aligned="/tmp/$(basename "$dst").aligned.apk"
+            zipalign -p -f 4 "$src" "$aligned"
+            apksigner sign \
+              --ks "$KEYSTORE_PATH" \
+              --ks-key-alias "$KEY_ALIAS" \
+              --ks-pass "pass:$KS_PASS" \
+              --key-pass "pass:$KEY_PASS" \
+              --out "$dst" \
+              "$aligned"
+            apksigner verify "$dst"
+          }
+
+          APK_ROOT="src-tauri/gen/android/app/build/outputs/apk"
+          UNIV_APK=$(find "$APK_ROOT" -type f -path "*universal*release*.apk" | head -n 1 || true)
+          ARM64_APK=$(find "$APK_ROOT" -type f -path "*arm64*release*.apk" | head -n 1 || true)
+
+          echo "Found APKs:"
+          find "$APK_ROOT" -type f -name "*.apk"
+
+          if [ -n "$UNIV_APK" ]; then
+            sign_apk "$UNIV_APK" "release-assets/Wachcha-${VERSION}-android-universal.apk"
+          fi
+          if [ -n "$ARM64_APK" ]; then
+            sign_apk "$ARM64_APK" "release-assets/Wachcha-${VERSION}-android-arm64.apk"
+          fi
+
+          ls -lh release-assets
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-android
+          path: release-assets/
+          if-no-files-found: error

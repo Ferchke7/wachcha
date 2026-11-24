@@ -1,0 +1,54 @@
+{
+  "name": "wachcha",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Open-source cross-platform media center aggregating Movies, Russian TV, Turkish Dizis, Anime, M3U8, and Stremio Addons.",
+  "license": "MIT",
+  "homepage": "https://ferchke7.github.io/wachcha/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ferchke7/wachcha.git"
+  },
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:android": "tauri android build --apk",
+    "dev:web": "vite --host 127.0.0.1 --port 4179",
+    "build:web": "tsc -b && vite build",
+    "build:pages": "node scripts/build-pages.mjs",
+    "preview": "vite preview --host 127.0.0.1 --port 4179",
+    "tauri": "tauri",
+    "icon": "tauri icon src-tauri/icons/app-icon.png",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --no-default-features --lib",
+    "probe:build": "cargo build --manifest-path src-tauri/Cargo.toml --no-default-features --example media_probe",
+    "check:probe": "node scripts/check-probe.mjs",
+    "check:virtual": "node scripts/check-virtual.mjs",
+    "check:app": "npm run build:web && npm run probe:build && node scripts/check-app.mjs",
+    "clean:tauri": "node scripts/clean-tauri.mjs",
+    "prepare:windows-libmpv": "node scripts/prepare-windows-libmpv.mjs",
+    "format": "prettier --write . && cargo fmt --manifest-path src-tauri/Cargo.toml",
+    "format:check": "prettier --check . && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check"
+  },
+  "dependencies": {
+    "@preact/signals": "^2.0.0",
+    "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-notification": "^2.2.2",
+    "@tauri-apps/plugin-opener": "^2.2.7",
+    "preact": "^10.26.4",
+    "shaka-player": "^4.14.8"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.2",
+    "@tauri-apps/cli": "^2.5.0",
+    "@testing-library/preact": "^3.2.4",
+    "@types/node": "^22.15.0",
+    "jsdom": "^26.1.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.3"
+  }
+}

@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090612" />
+    <title>Wachcha — Open-Source Cross-Platform Media Center</title>
+    <meta
+      name="description"
+      content="Download Wachcha for Windows (.exe/.msi), Android & Android TV (.apk), macOS (.dmg), Linux (.AppImage/.deb/.rpm), or launch the live PWA."
+    />
+    <meta property="og:title" content="Wachcha — Open-Source Streaming Media Center" />
+    <meta
+      property="og:description"
+      content="Movies, Russian & World TV Series, Turkish Dizis, Anime, Live M3U8, and Stremio Addons in one zero-server Tauri v2 + Rust media center."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://ferchke7.github.io/wachcha/" />
+    <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
+    <link rel="apple-touch-icon" href="./icons/icon-256.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="ambient-glow" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="container topbar-inner">
+        <a class="brand" href="#top">
+          <img src="./icons/icon.svg" alt="Wachcha" width="34" height="34" />
+          <span class="brand-name">Wachcha</span>
+          <span class="version-badge" id="version-badge">v0.0.1</span>
+        </a>
+
+        <nav class="nav-links" aria-label="Primary navigation">
+          <a href="#downloads" data-i18n="navDownloads">Downloads</a>
+          <a href="#features" data-i18n="navFeatures">Features</a>
+          <a href="#build" data-i18n="navBuild">Build</a>
+          <a href="./app/" data-i18n="navWebApp">Web App</a>
+        </nav>
+
+        <div class="header-actions">
+          <div class="lang-switch" role="group" aria-label="Language">
+            <button type="button" class="lang-btn" data-lang="en">EN</button>
+            <button type="button" class="lang-btn" data-lang="ru">RU</button>
+            <button type="button" class="lang-btn" data-lang="tr">TR</button>
+          </div>
+          <a
+            class="btn btn-ghost btn-sm"
+            href="https://github.com/Ferchke7/wachcha"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero container">
+        <div class="hero-pill">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span data-i18n="heroBadge">MIT Open-Source · Tauri v2 + Rust + Preact</span>
+        </div>
+
+        <h1 class="hero-title" data-i18n="heroTitle">
+          One open cinema hub for Movies, Turkish Dizis, Russian TV &amp; Anime.
+        </h1>
+
+        <p class="hero-subtitle" data-i18n="heroSubtitle">
+          Zero public servers. Native libmpv + GLSL shaders &amp; lazy Shaka Player. Unified
+          multi-vertical search with canonical deduplication, Stremio Addon v3, and M3U8 Live TV.
+        </p>
+
+        <div class="hero-cta">
+          <a id="primary-download" class="btn btn-primary" href="#downloads">
+            <span id="primary-download-label">Download Wachcha v0.0.1</span>
+            <span id="primary-download-meta" class="cta-meta"></span>
+          </a>
+          <a class="btn btn-secondary" href="./app/" data-i18n="launchWebApp">
+            Launch Live Web App
+          </a>
+          <a
+            class="btn btn-ghost"
+            href="https://github.com/Ferchke7/wachcha/releases/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-i18n="allReleases"
+          >
+            All Releases
+          </a>
+        </div>
+
+        <div class="platform-strip">
+          <span>Windows (.exe / .msi)</span>
+          <span>Android &amp; TV (.apk)</span>
+          <span>macOS (.dmg)</span>
+          <span>Linux (.AppImage / .deb / .rpm)</span>
+          <span>PWA Web</span>
+        </div>
+      </section>
+
+      <section id="downloads" class="section container">
+        <div class="section-head">
+          <div>
+            <h2 data-i18n="downloadsTitle">Download Wachcha</h2>
+            <p class="muted" data-i18n="downloadsSubtitle">
+              Prebuilt binaries compiled automatically via GitHub Actions with SHA-256 checksums.
+            </p>
+          </div>
+          <a
+            id="checksums-link"
+            class="checksum-pill"
+            href="https://github.com/Ferchke7/wachcha/releases/download/v0.0.1/SHA256SUMS.txt"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            SHA256SUMS.txt
+          </a>
+        </div>
+
+        <div class="download-grid">
+          <article class="card platform-card" data-os="windows">
+            <div class="card-top">
+              <div>
+                <h3>Windows</h3>
+                <span class="arch-tag">Windows 10 / 11 · x86_64</span>
+              </div>
+              <span class="ext-pill">.exe · .msi</span>
+            </div>
+            <p class="card-desc" data-i18n="winDesc">
+              Native desktop window with optional libmpv-2.dll GLSL upscaling and automatic Shaka
+              Player fallback.
+            </p>
+            <div class="asset-list">
+              <a
+                class="asset-btn asset-btn-main"
+                data-asset="windows-setup"
+                href="https://github.com/Ferchke7/wachcha/releases/download/v0.0.1/Wachcha-0.0.1-windows-x64-setup.exe"
+              >
+                <span>Installer (.exe)</span>
+                <span class="asset-size" data-size="windows-setup">NSIS x64</span>
+              </a>
+              <a
+                class="asset-btn"
+                data-asset="windows-msi"
+                href="https://github.com/Ferchke7/wachcha/releases/download/v0.0.1/Wachcha-0.0.1-windows-x64.msi"
+              >
+                <span>Windows Package (.msi)</span>
+                <span class="asset-size" data-size="windows-msi">WiX x64</span>
+              </a>
+              <a
+                class="asset-btn"
+                data-asset="windows-portable"
+                href="https://github.com/Ferchke7/wachcha/releases/download/v0.0.1/Wachcha-0.0.1-windows-x64-portable.zip"
+              >
+                <span>Portable Archive (.zip)</span>
+                <span class="asset-size" data-size="windows-portable">No Install</span>
+              </a>
+            </div>
+          </article>
+
+          <article class="card platform-card" data-os="android">
+            <div class="card-top">
+              <div>
+                <h3>Android &amp; Android TV</h3>
+                <span class="arch-tag">Phones · Tablets · Google TV · Fire TV</span>
+              </div>
+              <span class="ext-pill">.apk</span>
+            </div>
+            <p class="card-desc" data-i18n="androidDesc">
+              Signed release APK with Leanback TV launcher metadata, 10-foot D-pad focus rings, and
+              mobile bottom sheets.
+            </p>
+            <div class="asset-list">
+              <a
+                class="asset-btn asset-btn-main"
+                data-asset="android-universal"
+                href="https://github.com/Ferchke7/wachcha/releases/download/v0.0.1/Wachcha-0.0.1-android-universal.apk"
+              >
+                <span>Universal Signed (.apk)</span>
+                <span class="asset-size" data-size="android-universal">ARM64 + v7 + x64</span>
+              </a>
+              <a
+                class="asset-btn"
+                data-asset="android-arm64"
+                href="https://github.com/Ferchke7/wachcha/releases/download/v0.0.1/Wachcha-0.0.1-android-arm64.apk"
+              >
+                <span>ARM64 Signed (.apk)</span>
+                <span class="asset-size" data-size="android-arm64">arm64-v8a</span>
+              </a>
+            </div>
+          </article>
+
+          <article class="card platform-card" data-os="macos">
+            <div class="card-top">
+              <div>
+                <h3>macOS</h3>
+                <span class="arch-tag">macOS 12+ · Apple Silicon (arm64)</span>
+              </div>
+              <span class="ext-pill">.dmg</span>
+            </div>
+            <p class="card-desc" data-i18n="macDesc">
+              Native overlay titlebar and WebKit-compatible IndexedDB SWR cache. Run
+              <code>xattr -cr /Applications/Wachcha.app</code> if Gatekeeper prompts.
+            </p>
+            <div class="asset-list">
+              <a
+                class="asset-btn asset-btn-main"
+                data-asset="macos-dmg"
+                href="https://github.com/Ferchke7/wachcha/releases/download/v0.0.1/Wachcha-0.0.1-macos-arm64.dmg"
+              >
+                <span>Apple Silicon (.dmg)</span>
+                <span class="asset-size" data-size="macos-dmg">arm64</span>
+              </a>
+            </div>
+          </article>
+
+          <article class="card platform-card" data-os="linux">
+            <div class="card-top">
+              <div>
+                <h3>Linux</h3>
+                <span class="arch-tag">Ubuntu · Debian · Fedora · Arch · x86_64</span>
+              </div>
+              <span class="ext-pill">.AppImage · .deb · .rpm</span>
+            </div>
+            <p class="card-desc" data-i18n="linuxDesc">
+              Portable AppImage plus native .deb and .rpm packages declaring optional libmpv2
+              acceleration.
+            </p>
+            <div class="asset-list">
+              <a
+                class="asset-btn asset-btn-main"
+                data-asset="linux-appimage"
+                href="https://github.com/Ferchke7/wachcha/releases/download/v0.0.1/Wachcha-0.0.1-linux-x64.AppImage"
+              >
+                <span>Portable (.AppImage)</span>
+                <span class="asset-size" data-size="linux-appimage">x86_64</span>
+              </a>
+              <a
+                class="asset-btn"
+                data-asset="linux-deb"
+                href="https://github.com/Ferchke7/wachcha/releases/download/v0.0.1/Wachcha-0.0.1-linux-x64.deb"
+              >
+                <span>Debian / Ubuntu (.deb)</span>
+                <span class="asset-size" data-size="linux-deb">x86_64</span>
+              </a>
+              <a
+                class="asset-btn"
+                data-asset="linux-rpm"
+                href="https://github.com/Ferchke7/wachcha/releases/download/v0.0.1/Wachcha-0.0.1-linux-x64.rpm"
+              >
+                <span>Fedora / RHEL (.rpm)</span>
+                <span class="asset-size" data-size="linux-rpm">x86_64</span>
+              </a>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="features" class="section container">
+        <div class="section-head">
+          <div>
+            <h2 data-i18n="featuresTitle">Built for Speed, Privacy &amp; Extensibility</h2>
+            <p class="muted" data-i18n="featuresSubtitle">
+              Clean-room open-source media engine with strict in-process transport security.
+            </p>
+          </div>
+        </div>
+
+        <div class="feature-grid">
+          <div class="card feature-card">
+            <span class="feature-kicker">MULTI-VERTICAL</span>
+            <h3 data-i18n="feat1Title">Unified Search &amp; Deduplication</h3>
+            <p class="card-desc" data-i18n="feat1Desc">
+              Aggregate AniLiberty, Shikimori, Yummy Public, TMDB (RU/TR/EN), TVMaze, Rutube, and
+              Official Turkish Broadcasters — merged by canonical IMDb, TMDB, MAL &amp; Shikimori
+              IDs.
+            </p>
+          </div>
+
+          <div class="card feature-card">
+            <span class="feature-kicker">ZERO SERVER</span>
+            <h3 data-i18n="feat2Title">In-Process wachcha-media://</h3>
+            <p class="card-desc" data-i18n="feat2Desc">
+              No bundled Node.js or public HTTP server. Authenticated HLS/DASH segments flow via
+              opaque hex sessions with strict HTTPS allowlists and disabled redirects.
+            </p>
+          </div>
+
+          <div class="card feature-card">
+            <span class="feature-kicker">HYBRID PLAYBACK</span>
+            <h3 data-i18n="feat3Title">libmpv + GLSL &amp; Shaka Player</h3>
+            <p class="card-desc" data-i18n="feat3Desc">
+              Native libmpv decoding with Anime4K/FSR/FSRCNNX upscalers over a random-key loopback
+              relay, plus lazy-loaded Shaka Player with skip markers &amp; auto-next.
+            </p>
+          </div>
+
+          <div class="card feature-card">
+            <span class="feature-kicker">OPEN ECOSYSTEM</span>
+            <h3 data-i18n="feat4Title">Stremio v3 &amp; M3U8 Playlists</h3>
+            <p class="card-desc" data-i18n="feat4Desc">
+              Plug in any community Stremio Addon manifest.json or free M3U8 Live TV list without
+              modifying core code. Full English, Russian, and Turkish UI built in.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="build" class="section container">
+        <div class="section-head">
+          <div>
+            <h2 data-i18n="buildTitle">Build from Source</h2>
+            <p class="muted" data-i18n="buildSubtitle">
+              Reproduce any desktop installer, Android/TV APK, or web bundle locally with Node 22
+              and Rust.
+            </p>
+          </div>
+        </div>
+
+        <div class="card build-card">
+          <div class="build-tabs" role="tablist" aria-label="Build target">
+            <button type="button" class="tab-btn active" role="tab" data-target="windows">
+              Windows (.exe / .msi)
+            </button>
+            <button type="button" class="tab-btn" role="tab" data-target="android">
+              Android &amp; TV (.apk)
+            </button>
+            <button type="button" class="tab-btn" role="tab" data-target="macos">
+              macOS (.dmg)
+            </button>
+            <button type="button" class="tab-btn" role="tab" data-target="linux">
+              Linux (.AppImage / .deb)
+            </button>
+            <button type="button" class="tab-btn" role="tab" data-target="web">
+              Web / Dev / Tests
+            </button>
+          </div>
+
+          <div class="code-box">
+            <pre><code id="build-code"></code></pre>
+            <button type="button" class="btn btn-ghost btn-sm copy-btn" id="copy-build-btn">
+              Copy
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-brand">
+          <img src="./icons/icon.svg" alt="" width="24" height="24" />
+          <span>Wachcha · MIT License</span>
+        </div>
+        <div class="footer-links">
+          <a href="./app/">Web App</a>
+          <a
+            href="https://github.com/Ferchke7/wachcha/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Releases
+          </a>
+          <a
+            href="https://www.figma.com/design/tE1dNJZTKeqsAfyIXDKtH6"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Figma Design
+          </a>
+          <a href="https://github.com/Ferchke7/wachcha" target="_blank" rel="noopener noreferrer">
+            GitHub
+          </a>
+        </div>
+      </div>
+    </footer>
+
+    <script src="./app.js" defer></script>
+  </body>
+</html>

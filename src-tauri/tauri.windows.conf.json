@@ -1,0 +1,19 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Wachcha",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 720,
+        "minHeight": 480,
+        "center": true,
+        "backgroundColor": "#090612",
+        "theme": "Dark",
+        "decorations": false,
+        "shadow": true
+      }
+    ]
+  }
+}
