@@ -8,6 +8,7 @@ export interface StreamMediaProps {
   playbackRate: number;
   volume: number;
   muted: boolean;
+  activeSubtitleLang?: string;
   onTimeUpdate: (time: number, duration: number) => void;
   onPlayingChange: (playing: boolean) => void;
   onEnded: () => void;
@@ -25,6 +26,7 @@ export function StreamMedia({
   playbackRate,
   volume,
   muted,
+  activeSubtitleLang,
   onTimeUpdate,
   onPlayingChange,
   onEnded,
@@ -127,6 +129,16 @@ export function StreamMedia({
     }
   }, [volume, muted]);
 
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !v.textTracks) return;
+    for (let i = 0; i < v.textTracks.length; i += 1) {
+      const track = v.textTracks[i];
+      track.mode =
+        activeSubtitleLang && track.language === activeSubtitleLang ? 'showing' : 'disabled';
+    }
+  }, [activeSubtitleLang, stream.subtitles]);
+
   return (
     <>
       <video
@@ -134,6 +146,7 @@ export function StreamMedia({
         class="player-video"
         playsInline
         preload="auto"
+        crossOrigin="anonymous"
         onLoadedMetadata={e => {
           const v = e.currentTarget;
           if (Number.isFinite(v.duration)) onTimeUpdate(v.currentTime || 0, v.duration);
@@ -150,7 +163,18 @@ export function StreamMedia({
         onPause={() => onPlayingChange(false)}
         onEnded={onEnded}
         onError={() => onError('HTMLMediaElement error')}
-      />
+      >
+        {(stream.subtitles || []).map(sub => (
+          <track
+            key={`${sub.lang}:${sub.url}`}
+            kind="subtitles"
+            srcLang={sub.lang}
+            label={sub.label}
+            src={sub.url}
+            default={activeSubtitleLang === sub.lang}
+          />
+        ))}
+      </video>
       {/* Secondary muted preload layer reserved for flicker-free quality swaps */}
       <video ref={preloadRef} class="player-video preload-hidden" muted playsInline />
     </>

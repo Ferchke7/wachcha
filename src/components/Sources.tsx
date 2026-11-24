@@ -11,6 +11,35 @@ import { t } from '~/lib/i18n';
 import type { ProviderHealth, ProviderInfo } from '~/lib/types';
 import { Button, showToast } from '~/ui';
 
+const PRESET_ADDONS = [
+  {
+    name: 'OpenSubtitles v3 (RU / TR / EN)',
+    desc: 'Automatic Russian, Turkish & English subtitles for Movies & Series',
+    url: 'https://opensubtitles-v3.strem.io/manifest.json',
+  },
+  {
+    name: 'WatchHub (Official Sources)',
+    desc: 'Official broadcaster & streaming catalog links',
+    url: 'https://watchhub.strem.io/manifest.json',
+  },
+  {
+    name: 'Cinemeta IMDb v3',
+    desc: 'Official IMDb Top-250 movies, series, trailers & episodes',
+    url: 'https://v3-cinemeta.strem.io/manifest.json',
+  },
+];
+
+const PRESET_PLAYLISTS = [
+  {
+    name: 'IPTV-Org Turkey (Free-to-Air)',
+    url: 'https://iptv-org.github.io/iptv/languages/tur.m3u',
+  },
+  {
+    name: 'IPTV-Org Russia (Free-to-Air)',
+    url: 'https://iptv-org.github.io/iptv/languages/rus.m3u',
+  },
+];
+
 export function Sources({ onChanged }: { onChanged?: () => void }) {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [health, setHealth] = useState<Record<string, ProviderHealth>>({});
@@ -193,6 +222,27 @@ export function Sources({ onChanged }: { onChanged?: () => void }) {
                 {t('sources.install')}
               </Button>
             </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {PRESET_ADDONS.map(preset => (
+                <button
+                  key={preset.url}
+                  type="button"
+                  class="choice-pill"
+                  title={preset.desc}
+                  onClick={async () => {
+                    try {
+                      const added = await installStremioAddon(preset.url);
+                      showToast(`Installed ${added.name}`);
+                      await reload();
+                    } catch (err) {
+                      showToast(err instanceof Error ? err.message : String(err));
+                    }
+                  }}
+                >
+                  + {preset.name}
+                </button>
+              ))}
+            </div>
             {addonProviders.map(a => (
               <div key={a.id} class="provider-row">
                 <div>
@@ -201,15 +251,19 @@ export function Sources({ onChanged }: { onChanged?: () => void }) {
                     {a.description}
                   </div>
                 </div>
-                <Button
-                  variant="danger"
-                  onClick={async () => {
-                    await removeStremioAddon(a.id);
-                    await reload();
-                  }}
-                >
-                  {t('sources.remove')}
-                </Button>
+                {a.id === 'addon:opensubtitles-v3' ? (
+                  <span class="choice-pill active">{t('sources.on')}</span>
+                ) : (
+                  <Button
+                    variant="danger"
+                    onClick={async () => {
+                      await removeStremioAddon(a.id);
+                      await reload();
+                    }}
+                  >
+                    {t('sources.remove')}
+                  </Button>
+                )}
               </div>
             ))}
           </form>
@@ -238,6 +292,26 @@ export function Sources({ onChanged }: { onChanged?: () => void }) {
               <Button type="submit" variant="glass">
                 {t('sources.m3uAdd')}
               </Button>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {PRESET_PLAYLISTS.map(pl => (
+                <button
+                  key={pl.url}
+                  type="button"
+                  class="choice-pill"
+                  onClick={async () => {
+                    try {
+                      await addM3uPlaylist(pl.name, pl.url);
+                      showToast(`Loaded ${pl.name}`);
+                      await reload();
+                    } catch (err) {
+                      showToast(err instanceof Error ? err.message : String(err));
+                    }
+                  }}
+                >
+                  + {pl.name}
+                </button>
+              ))}
             </div>
           </form>
         </div>

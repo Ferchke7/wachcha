@@ -48,6 +48,9 @@ export function translateMediaUrl(uri: string): string {
 function getApiBase(): string {
   const envBase = import.meta.env?.VITE_API_BASE as string | undefined;
   if (envBase) return envBase.replace(/\/$/, '');
+  if (isTauriRuntime()) {
+    return 'https://wachcha.codeguru.ovh';
+  }
   if (typeof window !== 'undefined') {
     const host = window.location.hostname;
     // GitHub Pages static preview automatically delegates API traffic to wachcha.codeguru.ovh
@@ -91,7 +94,11 @@ async function apiFetchJson<T>(path: string, init?: RequestInit): Promise<T | nu
 
 function rewriteRelativeAssetUrls<T>(value: T, base: string): T {
   if (typeof value === 'string') {
-    if (value.startsWith('/api/img?') || value.startsWith('/api/hls?')) {
+    if (
+      value.startsWith('/api/img?') ||
+      value.startsWith('/api/hls?') ||
+      value.startsWith('/api/sub?')
+    ) {
       return `${base}${value}` as unknown as T;
     }
     return value;
@@ -219,25 +226,59 @@ export async function getDesktopInfo(): Promise<DesktopInfo> {
   };
 }
 
+const DEFAULT_PREINSTALLED_ADDONS: Array<ProviderInfo & { manifestUrl: string }> = [
+  {
+    id: 'addon:opensubtitles-v3',
+    name: 'OpenSubtitles v3 (RU / TR / EN)',
+    description: 'Auto-enabled community subtitle addon for Movies, Series & Turkish Dizis.',
+    categories: ['movie', 'series', 'turkish-dizi'],
+    enabled: true,
+    requiresKey: false,
+    keyConfigured: true,
+    keyless: true,
+    streamCapable: false,
+    kind: 'stremio',
+    manifestUrl: 'https://opensubtitles-v3.strem.io/manifest.json',
+  },
+];
+
+export function getInstalledAddonUrls(): string[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(WEB_ADDONS_KEY) || '[]') as Array<
+      ProviderInfo & { manifestUrl?: string }
+    >;
+    const urls = saved
+      .filter(a => a.enabled !== false && typeof a.manifestUrl === 'string')
+      .map(a => a.manifestUrl as string);
+    return [...new Set([...DEFAULT_PREINSTALLED_ADDONS.map(a => a.manifestUrl), ...urls])];
+  } catch {
+    return DEFAULT_PREINSTALLED_ADDONS.map(a => a.manifestUrl);
+  }
+}
+
 export async function listProviders(): Promise<ProviderInfo[]> {
   if (isTauriRuntime()) {
     return invoke<ProviderInfo[]>('list_providers');
   }
   let overrides: Record<string, { enabled?: boolean; keyConfigured?: boolean }> = {};
-  let addons: ProviderInfo[] = [];
+  let addons: Array<ProviderInfo & { manifestUrl?: string }> = [];
   try {
     overrides = JSON.parse(localStorage.getItem(WEB_PROVIDERS_KEY) || '{}');
     addons = JSON.parse(localStorage.getItem(WEB_ADDONS_KEY) || '[]');
   } catch {
     // Ignore storage errors.
   }
+  const mergedAddons = [
+    ...DEFAULT_PREINSTALLED_ADDONS.filter(d => !addons.some(a => a.id === d.id)),
+    ...addons,
+  ];
   return [
     ...DEFAULT_WEB_PROVIDERS.map(p => ({
       ...p,
       enabled: overrides[p.id]?.enabled ?? p.enabled,
       keyConfigured: overrides[p.id]?.keyConfigured ?? p.keyConfigured,
     })),
-    ...addons,
+    ...mergedAddons,
   ];
 }
 
@@ -283,20 +324,33 @@ export async function installStremioAddon(manifestUrl: string): Promise<Provider
   if (!clean.startsWith('https://') || !clean.endsWith('manifest.json')) {
     throw new Error('Addon URL must be HTTPS and end with /manifest.json');
   }
-  const id = clean.replace(/[^a-z0-9]/gi, '').slice(-10);
-  const entry: ProviderInfo = {
+  const validated = await apiFetchJson<{
+    id: string;
+    name: string;
+    version: string;
+    description: string;
+    resources: string[];
+  }>(`/api/stremio/manifest?url=${encodeURIComponent(clean)}`);
+
+  const id = validated?.id || clean.replace(/[^a-z0-9]/gi, '').slice(-10);
+  const entry: ProviderInfo & { manifestUrl: string } = {
     id: `addon:${id}`,
-    name: new URL(clean).hostname,
-    description: `Stremio Addon (${clean})`,
+    name: validated?.name || new URL(clean).hostname,
+    description: validated
+      ? `Stremio v${validated.version} (${validated.resources.join(', ') || 'stream'})`
+      : `Stremio Addon (${clean})`,
     categories: ['movie', 'series', 'turkish-dizi', 'anime'],
     enabled: true,
     requiresKey: false,
     keyConfigured: true,
     keyless: true,
-    streamCapable: true,
+    streamCapable: validated ? validated.resources.includes('stream') : true,
     kind: 'stremio',
+    manifestUrl: clean,
   };
-  const existing: ProviderInfo[] = JSON.parse(localStorage.getItem(WEB_ADDONS_KEY) || '[]');
+  const existing: Array<ProviderInfo & { manifestUrl?: string }> = JSON.parse(
+    localStorage.getItem(WEB_ADDONS_KEY) || '[]'
+  );
   localStorage.setItem(
     WEB_ADDONS_KEY,
     JSON.stringify([...existing.filter(a => a.id !== entry.id), entry])
@@ -359,13 +413,13 @@ export async function checkProviderHealth(): Promise<ProviderHealth[]> {
 }
 
 export async function getHomeShelves(locale: Locale): Promise<CatalogShelf[]> {
-  if (isTauriRuntime()) {
-    return invoke<CatalogShelf[]>('get_home_shelves', { locale });
-  }
   const viaServer = await apiFetchJson<CatalogShelf[]>(
     `/api/home?locale=${encodeURIComponent(locale)}`
   );
   if (viaServer && viaServer.length > 0) return viaServer;
+  if (isTauriRuntime()) {
+    return invoke<CatalogShelf[]>('get_home_shelves', { locale });
+  }
 
   // Direct CORS-safe fallback when offline from Wachcha API Gateway
   const shelves: CatalogShelf[] = [];
@@ -433,10 +487,8 @@ export async function getTops(opts: {
   if (opts.year) params.set('year', opts.year);
   if (opts.minRating && opts.minRating > 0) params.set('minRating', String(opts.minRating));
 
-  if (!isTauriRuntime()) {
-    const viaServer = await apiFetchJson<PagedResult>(`/api/tops?${params.toString()}`);
-    if (viaServer) return viaServer;
-  }
+  const viaServer = await apiFetchJson<PagedResult>(`/api/tops?${params.toString()}`);
+  if (viaServer) return viaServer;
 
   // Fallback for desktop / static-only mode: leverage AniLiberty & home shelves
   if (opts.vertical === 'anime' || opts.vertical === 'ongoing') {
@@ -518,10 +570,8 @@ export async function getCatalog(opts: {
   if (opts.year) params.set('year', opts.year);
   if (opts.minRating && opts.minRating > 0) params.set('minRating', String(opts.minRating));
 
-  if (!isTauriRuntime()) {
-    const viaServer = await apiFetchJson<PagedResult>(`/api/catalog?${params.toString()}`);
-    if (viaServer) return viaServer;
-  }
+  const viaServer = await apiFetchJson<PagedResult>(`/api/catalog?${params.toString()}`);
+  if (viaServer) return viaServer;
 
   if (opts.category !== 'all') {
     return getTops({
@@ -539,22 +589,18 @@ export async function getCatalog(opts: {
 }
 
 export async function getGenres(category: string): Promise<GenreOption[]> {
-  if (!isTauriRuntime()) {
-    const viaServer = await apiFetchJson<GenreOption[]>(
-      `/api/genres?category=${encodeURIComponent(category)}`
-    );
-    if (viaServer) return viaServer;
-  }
+  const viaServer = await apiFetchJson<GenreOption[]>(
+    `/api/genres?category=${encodeURIComponent(category)}`
+  );
+  if (viaServer) return viaServer;
   return ['Action', 'Drama', 'Comedy', 'Fantasy', 'Thriller', 'Sci-Fi', 'Romance', 'History'].map(
     name => ({ id: name, name })
   );
 }
 
 export async function getWeeklySchedule(): Promise<WeeklySchedule> {
-  if (!isTauriRuntime()) {
-    const viaServer = await apiFetchJson<WeeklySchedule>('/api/schedule');
-    if (viaServer) return viaServer;
-  }
+  const viaServer = await apiFetchJson<WeeklySchedule>('/api/schedule');
+  if (viaServer) return viaServer;
   const days: MediaItem[][] = [[], [], [], [], [], [], []];
   try {
     const resp = await fetch('https://aniliberty.top/api/v1/anime/schedule/week');
@@ -681,13 +727,13 @@ export async function getMediaDetail(
   id: string,
   locale: Locale
 ): Promise<MediaDetail> {
-  if (isTauriRuntime()) {
-    return invoke<MediaDetail>('get_media_detail', { provider, id, locale });
-  }
   const viaServer = await apiFetchJson<MediaDetail>(
     `/api/detail/${encodeURIComponent(provider)}/${encodeURIComponent(id)}?locale=${encodeURIComponent(locale)}`
   );
   if (viaServer) return viaServer;
+  if (isTauriRuntime()) {
+    return invoke<MediaDetail>('get_media_detail', { provider, id, locale });
+  }
 
   if (provider === 'aniliberty') {
     const resp = await fetch(
@@ -782,14 +828,31 @@ export async function getMediaDetail(
   throw new Error('Detail unavailable offline.');
 }
 
-export async function resolveStreams(candidates: StreamCandidate[]): Promise<StreamResolution> {
+export interface ResolveContext {
+  imdbId?: string;
+  mediaType?: 'movie' | 'series';
+  season?: number;
+  episode?: number;
+}
+
+export async function resolveStreams(
+  candidates: StreamCandidate[],
+  context?: ResolveContext
+): Promise<StreamResolution> {
   if (isTauriRuntime()) {
-    return invoke<StreamResolution>('resolve_streams', { candidates });
+    const direct = await invoke<StreamResolution>('resolve_streams', { candidates }).catch(
+      () => null
+    );
+    if (direct && direct.streams.length > 0) return direct;
   }
   const viaServer = await apiFetchJson<StreamResolution>('/api/resolve', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ candidates }),
+    body: JSON.stringify({
+      candidates,
+      addons: getInstalledAddonUrls(),
+      ...context,
+    }),
   });
   if (viaServer && viaServer.streams.length > 0) return viaServer;
 

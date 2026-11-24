@@ -172,6 +172,56 @@ const CURATED_LIVE_CHANNELS = [
 
 ALLOWED_MEDIA_SUFFIXES.push('medya.trt.com.tr');
 
+const ALLOWED_SUBTITLE_SUFFIXES = ['strem.io', 'opensubtitles.org', 'opensubtitles.com'];
+
+function srtToVtt(text) {
+  const trimmed = String(text || '')
+    .replace(/^\uFEFF/, '')
+    .trim();
+  if (trimmed.startsWith('WEBVTT')) return trimmed;
+  return (
+    'WEBVTT\n\n' + trimmed.replace(/\r\n/g, '\n').replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
+  );
+}
+
+async function fetchOpenSubtitles(mediaType, imdbId, season, episode) {
+  if (!imdbId || !/^tt\d+$/.test(imdbId)) return [];
+  const subId =
+    mediaType === 'series' && season && episode ? `${imdbId}:${season}:${episode}` : imdbId;
+  const key = `osub:${mediaType}:${subId}`;
+  return cached(key, 30 * 60_000, async () => {
+    try {
+      const json = await fetchJson(
+        `https://opensubtitles-v3.strem.io/subtitles/${mediaType === 'series' ? 'series' : 'movie'}/${encodeURIComponent(subId)}.json`,
+        { timeoutMs: 5500 }
+      );
+      const list = Array.isArray(json?.subtitles) ? json.subtitles : [];
+      const wanted = [
+        { code: 'rus', lang: 'ru', label: 'Русский (OpenSubtitles)' },
+        { code: 'tur', lang: 'tr', label: 'Türkçe (OpenSubtitles)' },
+        { code: 'eng', lang: 'en', label: 'English (OpenSubtitles)' },
+      ];
+      const tracks = [];
+      for (const w of wanted) {
+        const hit = list.find(
+          s => String(s?.lang || '').toLowerCase() === w.code && typeof s?.url === 'string'
+        );
+        if (hit && isHostAllowed(hit.url, ALLOWED_SUBTITLE_SUFFIXES)) {
+          tracks.push({
+            lang: w.lang,
+            label: w.label,
+            url: `/api/sub?url=${encodeURIComponent(hit.url)}`,
+            format: 'vtt',
+          });
+        }
+      }
+      return tracks;
+    } catch {
+      return [];
+    }
+  });
+}
+
 /** Bounded in-memory TTL LRU cache */
 const cache = new Map();
 const inflight = new Map();
@@ -897,8 +947,35 @@ async function loadMediaDetail(provider, id, locale = 'ru') {
           : [];
 
       const alMatch = await findAniLibertyMatch([data?.russian, data?.name]);
-      const episodes = alMatch ? mapAniLibertyEpisodes(alMatch, item.id) : [];
+      let episodes = alMatch ? mapAniLibertyEpisodes(alMatch, item.id) : [];
       const voices = episodes.length ? ['AniLibria (RU)'] : [];
+      if (episodes.length === 0) {
+        const totalEps = Math.min(24, Math.max(1, Number(data?.episodes || 1)));
+        const titleForSearch = data?.russian || data?.name || item.title;
+        voices.push('Rutube (RU Auto)');
+        episodes = Array.from({ length: totalEps }, (_, i) => ({
+          id: `shiki-${id}-ep-${i + 1}`,
+          season: 1,
+          number: i + 1,
+          title: `${titleForSearch} · Episode ${i + 1}`,
+          thumbnailUrl: screenshots[i % Math.max(1, screenshots.length)] || item.posterUrl,
+          skips: [],
+          candidates: [
+            {
+              provider: 'rutube',
+              mediaId: item.id,
+              episodeId: `shiki-${id}-ep-${i + 1}`,
+              voiceLabel: 'Rutube (RU Auto)',
+              quality: 'Auto HD',
+              format: 'hls',
+              url: `rutube-search:${titleForSearch} ${i + 1} серия аниме||${data?.name || titleForSearch} episode ${i + 1}`,
+              preferred: true,
+              skips: [],
+              subtitles: [],
+            },
+          ],
+        }));
+      }
       const ratingStats = Array.isArray(data?.rates_scores_stats)
         ? data.rates_scores_stats
             .map(x => ({ score: Number(x.name), count: Number(x.value) }))
@@ -967,6 +1044,20 @@ async function loadMediaDetail(provider, id, locale = 'ru') {
           skips: [],
           subtitles: [],
         }));
+        if (candidates.length === 0) {
+          candidates.push({
+            provider: 'rutube',
+            mediaId: item.id,
+            episodeId: `movie-${rawImdb}`,
+            voiceLabel: 'Rutube Auto Search',
+            quality: 'Auto HD',
+            format: 'hls',
+            url: `rutube-search:${m.name} полный фильм||${m.name} фильм`,
+            preferred: true,
+            skips: [],
+            subtitles: [],
+          });
+        }
         candidates.forEach(c => voices.add(c.voiceLabel));
         episodes = [
           {
@@ -986,13 +1077,15 @@ async function loadMediaDetail(provider, id, locale = 'ru') {
           .filter(v => Number(v.season || 0) > 0)
           .slice(0, 120)
           .map((v, idx) => {
+            const epNum = Number(v.episode || idx + 1);
+            const seasonNum = Number(v.season || 1);
             const rt = rtResults[idx];
             const candidates = rt
               ? [
                   {
                     provider: 'rutube',
                     mediaId: item.id,
-                    episodeId: v.id || `s${v.season}e${v.episode}`,
+                    episodeId: v.id || `s${seasonNum}e${epNum}`,
                     voiceLabel: 'Rutube (RU)',
                     quality: 'HD',
                     format: 'hls',
@@ -1002,13 +1095,26 @@ async function loadMediaDetail(provider, id, locale = 'ru') {
                     subtitles: [],
                   },
                 ]
-              : [];
-            if (candidates.length) voices.add('Rutube (RU)');
+              : [
+                  {
+                    provider: 'rutube',
+                    mediaId: item.id,
+                    episodeId: v.id || `s${seasonNum}e${epNum}`,
+                    voiceLabel: 'Rutube (RU Auto)',
+                    quality: 'Auto HD',
+                    format: 'hls',
+                    url: `rutube-search:${m.name} ${seasonNum} сезон ${epNum} серия||${m.name} ${epNum} серия`,
+                    preferred: true,
+                    skips: [],
+                    subtitles: [],
+                  },
+                ];
+            candidates.forEach(c => voices.add(c.voiceLabel));
             return {
-              id: v.id || `s${v.season}e${v.episode}`,
-              season: Number(v.season || 1),
-              number: Number(v.episode || idx + 1),
-              title: v.name || v.title || `Episode ${v.episode || idx + 1}`,
+              id: v.id || `s${seasonNum}e${epNum}`,
+              season: seasonNum,
+              number: epNum,
+              title: v.name || v.title || `Episode ${epNum}`,
               thumbnailUrl: proxyImg(v.thumbnail) || item.backdropUrl,
               airDate: typeof v.released === 'string' ? v.released.slice(0, 10) : undefined,
               synopsis: stripHtml(v.overview || '').slice(0, 220) || undefined,
@@ -1067,14 +1173,16 @@ async function loadMediaDetail(provider, id, locale = 'ru') {
       const rawEps = Array.isArray(show?._embedded?.episodes) ? show._embedded.episodes : [];
       const voices = new Set();
       const episodes = rawEps.slice(0, 150).map((ep, idx) => {
+        const epNum = Number(ep.number || idx + 1);
         const rt = rtHits[idx];
+        const voiceName = curated.ruTitle ? 'Русская озвучка (Rutube)' : 'Rutube HD';
         const candidates = rt
           ? [
               {
                 provider: 'rutube',
                 mediaId: item.id,
                 episodeId: String(ep.id),
-                voiceLabel: curated.ruTitle ? 'Русская озвучка (Rutube)' : 'Rutube HD',
+                voiceLabel: voiceName,
                 quality: 'HD',
                 format: 'hls',
                 url: `rutube:${rt.id}`,
@@ -1083,13 +1191,28 @@ async function loadMediaDetail(provider, id, locale = 'ru') {
                 subtitles: [],
               },
             ]
-          : [];
+          : [
+              {
+                provider: 'rutube',
+                mediaId: item.id,
+                episodeId: String(ep.id),
+                voiceLabel: voiceName,
+                quality: 'Auto HD',
+                format: 'hls',
+                url: curated.ruTitle
+                  ? `rutube-search:${curated.ruTitle} ${epNum} серия русская озвучка||${show.name} ${epNum} bölüm`
+                  : `rutube-search:${show.name} ${epNum} серия||${show.name} episode ${epNum}`,
+                preferred: true,
+                skips: [],
+                subtitles: [],
+              },
+            ];
         candidates.forEach(c => voices.add(c.voiceLabel));
         return {
           id: String(ep.id),
           season: Number(ep.season || 1),
-          number: Number(ep.number || idx + 1),
-          title: ep.name || `Episode ${ep.number || idx + 1}`,
+          number: epNum,
+          title: ep.name || `Episode ${epNum}`,
           durationSeconds: ep.runtime ? ep.runtime * 60 : undefined,
           thumbnailUrl: proxyImg(ep?.image?.original || ep?.image?.medium) || backdropUrl,
           airDate: ep.airdate || undefined,
@@ -1311,24 +1434,93 @@ export function rewriteHlsManifest(text, baseUrl) {
     .join('\n');
 }
 
-async function resolveCandidates(candidates) {
+async function resolveRutubeVideoId(videoId) {
+  try {
+    const opts = await cached(`rt:play:${videoId}`, 2 * 60_000, () =>
+      fetchJson(`https://rutube.ru/api/play/options/${encodeURIComponent(videoId)}/?format=json`, {
+        timeoutMs: 7000,
+      })
+    );
+    return opts?.video_balancer?.m3u8 || '';
+  } catch {
+    return '';
+  }
+}
+
+async function resolveStremioAddonStreams(addons, { imdbId, mediaType, season, episode } = {}) {
+  if (!Array.isArray(addons) || !addons.length || !imdbId || !/^tt\d+$/.test(imdbId)) return [];
+  const type = mediaType === 'series' ? 'series' : 'movie';
+  const streamId =
+    type === 'series' && season && episode ? `${imdbId}:${season}:${episode}` : imdbId;
+  const out = [];
+  await Promise.allSettled(
+    addons.slice(0, 6).map(async manifestUrl => {
+      if (typeof manifestUrl !== 'string' || !manifestUrl.startsWith('https://')) return;
+      const base = manifestUrl.replace(/\/manifest\.json$/i, '').replace(/\/$/, '');
+      const u = new URL(base);
+      if (u.hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) return;
+      const data = await fetchJson(`${base}/stream/${type}/${encodeURIComponent(streamId)}.json`, {
+        timeoutMs: 6500,
+      });
+      const list = Array.isArray(data?.streams) ? data.streams : [];
+      for (const s of list.slice(0, 4)) {
+        const directUrl = typeof s?.url === 'string' ? s.url : '';
+        if (!directUrl.startsWith('https://')) continue;
+        const format = directUrl.toLowerCase().includes('.m3u8')
+          ? 'hls'
+          : directUrl.toLowerCase().includes('.mpd')
+            ? 'dash'
+            : 'mp4';
+        out.push({
+          provider: `addon:${u.hostname}`,
+          quality: String(s.name || s.title || 'Addon HD').slice(0, 24),
+          format,
+          url: directUrl,
+          relayed: false,
+          sourceHost: new URL(directUrl).hostname,
+          voiceLabel: String(s.title || s.name || u.hostname)
+            .split('\n')[0]
+            .slice(0, 48),
+          skips: [],
+          subtitles: [],
+        });
+      }
+    })
+  );
+  return out;
+}
+
+async function resolveCandidates(candidates, context = {}) {
   const streams = [];
+  const subtitlesPromise = fetchOpenSubtitles(
+    context.mediaType || 'movie',
+    context.imdbId,
+    context.season,
+    context.episode
+  );
+  const addonStreamsPromise = resolveStremioAddonStreams(context.addons, context);
+
   for (const c of Array.isArray(candidates) ? candidates : []) {
     let url = c.url;
     if (typeof url === 'string' && url.startsWith('rutube:')) {
-      const videoId = url.slice('rutube:'.length);
-      try {
-        const opts = await cached(`rt:play:${videoId}`, 2 * 60_000, () =>
-          fetchJson(
-            `https://rutube.ru/api/play/options/${encodeURIComponent(videoId)}/?format=json`,
-            {
-              timeoutMs: 7000,
-            }
-          )
-        );
-        url = opts?.video_balancer?.m3u8 || '';
-      } catch {
-        url = '';
+      url = await resolveRutubeVideoId(url.slice('rutube:'.length));
+    } else if (typeof url === 'string' && url.startsWith('rutube-search:')) {
+      const queries = url
+        .slice('rutube-search:'.length)
+        .split('||')
+        .map(s => s.trim())
+        .filter(Boolean);
+      url = '';
+      for (const q of queries) {
+        const hits = await searchRutubePlayableStreams(q, 3);
+        for (const h of hits) {
+          const m3u8 = await resolveRutubeVideoId(h.id);
+          if (m3u8) {
+            url = m3u8;
+            break;
+          }
+        }
+        if (url) break;
       }
     }
     if (!url || !url.startsWith('https://')) continue;
@@ -1353,10 +1545,17 @@ async function resolveCandidates(candidates) {
       subtitles: c.subtitles || [],
     });
   }
+
+  const [autoSubs, addonStreams] = await Promise.all([subtitlesPromise, addonStreamsPromise]);
+  const allStreams = [...streams, ...addonStreams].map(s => ({
+    ...s,
+    subtitles: s.subtitles?.length ? s.subtitles : autoSubs,
+  }));
+
   return {
-    provider: streams[0]?.provider || candidates?.[0]?.provider || 'wachcha',
+    provider: allStreams[0]?.provider || candidates?.[0]?.provider || 'wachcha',
     episodeId: candidates?.[0]?.episodeId || '',
-    streams,
+    streams: allStreams,
   };
 }
 
@@ -1773,8 +1972,79 @@ async function handleApi(req, res, urlObj) {
 
   if (path === '/api/resolve' && req.method === 'POST') {
     const body = await readBodyJson(req);
-    const resolved = await resolveCandidates(body.candidates || []);
+    const resolved = await resolveCandidates(body.candidates || [], {
+      addons: body.addons,
+      imdbId: body.imdbId,
+      mediaType: body.mediaType,
+      season: body.season,
+      episode: body.episode,
+    });
     sendJson(res, 200, resolved, 'no-store');
+    return;
+  }
+
+  if (path === '/api/stremio/manifest') {
+    const manifestUrl = urlObj.searchParams.get('url') || '';
+    if (!manifestUrl.startsWith('https://') || !manifestUrl.endsWith('manifest.json')) {
+      sendJson(
+        res,
+        400,
+        { error: 'Manifest URL must be HTTPS and end with /manifest.json' },
+        'no-store'
+      );
+      return;
+    }
+    const u = new URL(manifestUrl);
+    if (u.hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)) {
+      sendJson(res, 403, { error: 'Private hosts are blocked' }, 'no-store');
+      return;
+    }
+    const manifest = await fetchJson(manifestUrl, { timeoutMs: 8000 });
+    if (!manifest?.id || !manifest?.name) {
+      sendJson(res, 422, { error: 'Invalid Stremio manifest JSON' }, 'no-store');
+      return;
+    }
+    sendJson(
+      res,
+      200,
+      {
+        id: String(manifest.id),
+        name: String(manifest.name),
+        version: String(manifest.version || '1.0.0'),
+        description: String(manifest.description || ''),
+        resources: Array.isArray(manifest.resources)
+          ? manifest.resources.map(r => (typeof r === 'string' ? r : r?.name)).filter(Boolean)
+          : [],
+        types: Array.isArray(manifest.types) ? manifest.types.map(String) : ['movie', 'series'],
+        manifestUrl,
+      },
+      'public, max-age=300'
+    );
+    return;
+  }
+
+  if (path === '/api/sub') {
+    const target = urlObj.searchParams.get('url') || '';
+    if (!isHostAllowed(target, ALLOWED_SUBTITLE_SUFFIXES)) {
+      sendJson(res, 403, { error: 'Subtitle host not allowlisted' }, 'no-store');
+      return;
+    }
+    const { resp: upstream } = await fetchAllowed(target, ALLOWED_SUBTITLE_SUFFIXES, {
+      timeoutMs: 9000,
+    });
+    if (!upstream.ok) {
+      res.writeHead(upstream.status);
+      res.end();
+      return;
+    }
+    const raw = await upstream.text();
+    const vtt = srtToVtt(raw);
+    res.writeHead(200, {
+      'Content-Type': 'text/vtt; charset=utf-8',
+      'Cache-Control': 'public, max-age=86400',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(vtt);
     return;
   }
 

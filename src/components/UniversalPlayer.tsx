@@ -39,6 +39,7 @@ export function UniversalPlayer({
   const [duration, setDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [subtitleLang, setSubtitleLang] = useState<string>('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [hudHidden, setHudHidden] = useState(false);
@@ -105,7 +106,12 @@ export function UniversalPlayer({
           setLoading(false);
           return;
         }
-        const resolved = await resolveStreams(ep.candidates);
+        const resolved = await resolveStreams(ep.candidates, {
+          imdbId: data.item.externalIds.imdb,
+          mediaType: data.item.category === 'movie' ? 'movie' : 'series',
+          season: ep.season,
+          episode: ep.number,
+        });
         if (!alive) return;
         if (resolved.streams.length === 0) {
           setError(t('player.error'));
@@ -429,6 +435,7 @@ export function UniversalPlayer({
             playbackRate={appSettings.value.playbackRate}
             volume={appSettings.value.volume}
             muted={muted}
+            activeSubtitleLang={subtitleLang}
             videoRef={videoRef}
             onTimeUpdate={handleTimeUpdate}
             onPlayingChange={setPlaying}
@@ -585,6 +592,22 @@ export function UniversalPlayer({
                 {availableVoices.map(v => (
                   <option key={v} value={v}>
                     {v}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {activeStream?.subtitles && activeStream.subtitles.length > 0 && (
+              <select
+                class="filter-select"
+                aria-label={t('player.subtitles')}
+                value={subtitleLang}
+                onChange={e => setSubtitleLang((e.target as HTMLSelectElement).value)}
+              >
+                <option value="">CC: {t('player.subtitlesOff')}</option>
+                {activeStream.subtitles.map(sub => (
+                  <option key={sub.lang} value={sub.lang}>
+                    CC: {sub.label}
                   </option>
                 ))}
               </select>
