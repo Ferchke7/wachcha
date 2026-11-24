@@ -661,9 +661,16 @@ async function findShikimoriEnrichment(shikiId, titles) {
   try {
     let id = shikiId;
     if (!id) {
+      const candidates = [];
       for (const raw of titles.filter(Boolean)) {
+        const clean = String(raw).trim();
+        candidates.push(clean);
+        const beforeColon = clean.split(':')[0].trim();
+        if (beforeColon.length >= 3 && beforeColon !== clean) candidates.push(beforeColon);
+      }
+      for (const q of [...new Set(candidates)]) {
         const rows = await fetchJson(
-          `https://shikimori.io/api/animes?search=${encodeURIComponent(String(raw))}&limit=1`,
+          `https://shikimori.io/api/animes?search=${encodeURIComponent(q)}&limit=1`,
           { timeoutMs: 5500 }
         );
         if (Array.isArray(rows) && rows[0]?.id) {
