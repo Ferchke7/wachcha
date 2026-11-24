@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { isTauriRuntime } from '~/lib/desktop';
 import { requestCachedImage } from '~/lib/image-cache';
 
 export interface TCachedImageProps {
@@ -8,13 +9,19 @@ export interface TCachedImageProps {
 }
 
 export function CachedImage({ src, alt, className = '' }: TCachedImageProps) {
+  const isNative = isTauriRuntime();
   const holderRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(typeof IntersectionObserver === 'undefined');
-  const [resolved, setResolved] = useState<string | null>(null);
+  const [visible, setVisible] = useState(!isNative || typeof IntersectionObserver === 'undefined');
+  const [resolved, setResolved] = useState<string | null>(() => (!isNative && src ? src : null));
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     setFailed(false);
+    if (!isNative) {
+      setResolved(src || null);
+      setVisible(true);
+      return;
+    }
     if (!src || typeof IntersectionObserver === 'undefined') {
       setVisible(true);
       return;
@@ -28,14 +35,14 @@ export function CachedImage({ src, alt, className = '' }: TCachedImageProps) {
           obs.disconnect();
         }
       },
-      { rootMargin: '160px' }
+      { rootMargin: '240px' }
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [src]);
+  }, [src, isNative]);
 
   useEffect(() => {
-    if (!src || !visible) return;
+    if (!isNative || !src || !visible) return;
     const ctrl = new AbortController();
     const { immediate, promise } = requestCachedImage(src, ctrl.signal);
     if (immediate) setResolved(immediate);
@@ -43,7 +50,7 @@ export function CachedImage({ src, alt, className = '' }: TCachedImageProps) {
       if (!ctrl.signal.aborted && next) setResolved(next);
     });
     return () => ctrl.abort();
-  }, [src, visible]);
+  }, [src, visible, isNative]);
 
   if (!src || failed) {
     return (
@@ -74,6 +81,7 @@ export function CachedImage({ src, alt, className = '' }: TCachedImageProps) {
           src={resolved}
           alt={alt}
           class={className}
+          loading="lazy"
           decoding="async"
           onError={() => setFailed(true)}
         />

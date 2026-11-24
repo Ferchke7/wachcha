@@ -78,8 +78,15 @@ export function StreamMedia({
               if (!disposed) onError(`Shaka playback error: ${String(ev)}`);
             });
             shakaPlayer = player;
-            await player.load(targetUrl, startPosition > 0 ? startPosition : undefined);
+            const mimeType =
+              stream.format === 'dash' || targetUrl.includes('.mpd')
+                ? 'application/dash+xml'
+                : 'application/x-mpegURL';
+            await player.load(targetUrl, startPosition > 0 ? startPosition : undefined, mimeType);
             if (!disposed) {
+              if (video.duration && Number.isFinite(video.duration)) {
+                onTimeUpdate(video.currentTime || 0, video.duration);
+              }
               await video.play().catch(() => {});
             }
             return;
@@ -126,6 +133,15 @@ export function StreamMedia({
         ref={videoRef}
         class="player-video"
         playsInline
+        preload="auto"
+        onLoadedMetadata={e => {
+          const v = e.currentTarget;
+          if (Number.isFinite(v.duration)) onTimeUpdate(v.currentTime || 0, v.duration);
+        }}
+        onDurationChange={e => {
+          const v = e.currentTarget;
+          if (Number.isFinite(v.duration)) onTimeUpdate(v.currentTime || 0, v.duration);
+        }}
         onTimeUpdate={e => {
           const v = e.currentTarget;
           onTimeUpdate(v.currentTime || 0, v.duration || 0);

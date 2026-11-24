@@ -180,6 +180,10 @@
   gap: 26px;
 }
 
+.media-scroll > * {
+  flex-shrink: 0;
+}
+
 .mobile-bottom-nav {
   display: none;
 }

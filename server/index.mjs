@@ -1820,6 +1820,16 @@ async function handleApi(req, res, urlObj) {
       sendJson(res, 403, { error: 'Media host not allowlisted' }, 'no-store');
       return;
     }
+    if (req.method === 'HEAD') {
+      const isM3u8 = target.toLowerCase().includes('.m3u8');
+      res.writeHead(200, {
+        'Content-Type': isM3u8 ? 'application/vnd.apple.mpegurl; charset=utf-8' : 'video/mp2t',
+        'Access-Control-Allow-Origin': '*',
+        'Accept-Ranges': 'bytes',
+      });
+      res.end();
+      return;
+    }
     const headers = {};
     if (req.headers.range) headers.Range = String(req.headers.range);
     const { resp: upstream, finalUrl } = await fetchAllowed(target, ALLOWED_MEDIA_SUFFIXES, {

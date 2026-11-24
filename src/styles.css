@@ -692,6 +692,11 @@ input:focus-visible,
   font-weight: 600;
 }
 
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 120ms;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
