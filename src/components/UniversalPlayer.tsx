@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { getMediaDetail, resolveStreams, setKeepAwake } from '~/lib/desktop';
 import { locale, t } from '~/lib/i18n';
-import { getContinueEntry, recordContinueProgress } from '~/lib/library';
+import {
+  getContinueEntry,
+  isEpisodeWatched,
+  markEpisodeWatched,
+  recordContinueProgress,
+} from '~/lib/library';
 import { navigateBack, navigateTo } from '~/lib/navigation';
 import { appSettings, emitPlaybackEvent, formatTime, updateSettings } from '~/lib/playback-session';
 import type { MediaDetail, PlaybackEvent, ResolvedStream, SkipInterval } from '~/lib/types';
-import { Button, ChoiceTabs, EmptyState, Sidebar, showToast } from '~/ui';
+import { Button, CachedImage, ChoiceTabs, EmptyState, Sidebar, showToast } from '~/ui';
 import { AutoActionCountdown } from './AutoActionCountdown';
 import { StreamMedia } from './StreamMedia';
 
@@ -13,12 +18,20 @@ export interface UniversalPlayerProps {
   provider: string;
   id: string;
   episodeId?: string;
+  voice?: string;
   onPlayback?: (event: PlaybackEvent) => void;
 }
 
-export function UniversalPlayer({ provider, id, episodeId, onPlayback }: UniversalPlayerProps) {
+export function UniversalPlayer({
+  provider,
+  id,
+  episodeId,
+  voice,
+  onPlayback,
+}: UniversalPlayerProps) {
   const [detail, setDetail] = useState<MediaDetail | null>(null);
-  const [streams, setStreams] = useState<ResolvedStream[]>([]);
+  const [allStreams, setAllStreams] = useState<ResolvedStream[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState<string>(voice || '');
   const [streamIdx, setStreamIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,28 +40,58 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [hudHidden, setHudHidden] = useState(false);
   const [dismissedSkips, setDismissedSkips] = useState<Set<string>>(() => new Set());
   const [nextCountdown, setNextCountdown] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastSaveRef = useRef(0);
   const watchedRef = useRef(0);
+  const markedWatchedRef = useRef(false);
+  const hudTimerRef = useRef<number | null>(null);
 
   const activeEpisode =
     detail?.episodes.find(e => e.id === episodeId) ||
     detail?.episodes.find(e => e.candidates.length > 0) ||
     detail?.episodes[0];
-  const activeStream = streams[streamIdx];
-  const nextEpisode = (() => {
-    if (!detail || !activeEpisode) return undefined;
-    const idx = detail.episodes.findIndex(e => e.id === activeEpisode.id);
-    return idx >= 0 ? detail.episodes[idx + 1] : undefined;
-  })();
+
+  const availableVoices = [...new Set(allStreams.map(s => s.voiceLabel))];
+  const streams = selectedVoice
+    ? allStreams.filter(s => s.voiceLabel === selectedVoice)
+    : allStreams;
+  const activeStream = streams[streamIdx] || allStreams[0];
+
+  const episodeIndex =
+    detail && activeEpisode ? detail.episodes.findIndex(e => e.id === activeEpisode.id) : -1;
+  const prevEpisode = episodeIndex > 0 ? detail?.episodes[episodeIndex - 1] : undefined;
+  const nextEpisode = episodeIndex >= 0 && detail ? detail.episodes[episodeIndex + 1] : undefined;
+
+  const wakeHud = useCallback(() => {
+    setHudHidden(false);
+    if (hudTimerRef.current !== null) window.clearTimeout(hudTimerRef.current);
+    hudTimerRef.current = window.setTimeout(() => {
+      if (playing && !drawerOpen && !shortcutsOpen) setHudHidden(true);
+    }, 3200);
+  }, [playing, drawerOpen, shortcutsOpen]);
+
+  useEffect(() => {
+    if (!playing || drawerOpen || shortcutsOpen) {
+      setHudHidden(false);
+      return;
+    }
+    wakeHud();
+    return () => {
+      if (hudTimerRef.current !== null) window.clearTimeout(hudTimerRef.current);
+    };
+  }, [playing, drawerOpen, shortcutsOpen, wakeHud]);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
     setError(null);
+    setDismissedSkips(new Set());
+    markedWatchedRef.current = false;
     getMediaDetail(provider, id, locale.value)
       .then(async data => {
         if (!alive) return;
@@ -64,7 +107,15 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
         }
         const resolved = await resolveStreams(ep.candidates);
         if (!alive) return;
-        setStreams(resolved.streams);
+        if (resolved.streams.length === 0) {
+          setError(t('player.error'));
+          setLoading(false);
+          return;
+        }
+        setAllStreams(resolved.streams);
+        const voices = [...new Set(resolved.streams.map(s => s.voiceLabel))];
+        const matchedVoice = voice && voices.includes(voice) ? voice : voices[0] || '';
+        setSelectedVoice(matchedVoice);
         setStreamIdx(0);
         const saved = getContinueEntry(provider, id);
         if (saved && saved.episodeId === ep.id) {
@@ -83,7 +134,7 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
       alive = false;
       void setKeepAwake(false);
     };
-  }, [provider, id, episodeId, locale.value]);
+  }, [provider, id, episodeId, voice, locale.value]);
 
   const persistProgress = useCallback(
     (pos: number, dur: number, reason: PlaybackEvent['reason'] = 'timeupdate') => {
@@ -100,6 +151,10 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
         position: pos,
         duration: dur || activeEpisode.durationSeconds || 0,
       });
+      if (!markedWatchedRef.current && dur > 30 && pos / dur >= 0.85) {
+        markedWatchedRef.current = true;
+        markEpisodeWatched(detail.item, activeEpisode.id);
+      }
       emitPlaybackEvent(
         {
           version: 1,
@@ -144,21 +199,26 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
+    wakeHud();
     if (v.paused) {
       void v.play();
     } else {
       v.pause();
       persistProgress(v.currentTime, v.duration, 'pause');
     }
-  }, [persistProgress]);
+  }, [persistProgress, wakeHud]);
 
-  const seekBy = useCallback((delta: number) => {
-    const v = videoRef.current;
-    if (!v) return;
-    const next = Math.max(0, Math.min(v.duration || 0, (v.currentTime || 0) + delta));
-    v.currentTime = next;
-    setPosition(next);
-  }, []);
+  const seekBy = useCallback(
+    (delta: number) => {
+      const v = videoRef.current;
+      if (!v) return;
+      wakeHud();
+      const next = Math.max(0, Math.min(v.duration || 0, (v.currentTime || 0) + delta));
+      v.currentTime = next;
+      setPosition(next);
+    },
+    [wakeHud]
+  );
 
   const activeSkip: SkipInterval | undefined = activeStream?.skips.find(
     s => position >= s.from && position < s.to - 1 && !dismissedSkips.has(`${s.kind}:${s.from}`)
@@ -204,8 +264,27 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
     void setKeepAwake(playing);
   }, [playing]);
 
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      void document.documentElement.requestFullscreen?.();
+    } else {
+      void document.exitFullscreen?.();
+    }
+  }, []);
+
+  const togglePiP = useCallback(() => {
+    const v = videoRef.current;
+    if (!v || !document.pictureInPictureEnabled) return;
+    if (document.pictureInPictureElement) {
+      void document.exitPictureInPicture?.();
+    } else {
+      void v.requestPictureInPicture?.();
+    }
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      wakeHud();
       if (e.key === ' ' || e.key === 'k' || e.key === 'K') {
         e.preventDefault();
         togglePlay();
@@ -215,38 +294,74 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
         seekBy(10);
       } else if (e.key === 'm' || e.key === 'M') {
         setMuted(m => !m);
+      } else if (e.key === 'f' || e.key === 'F') {
+        toggleFullscreen();
+      } else if (e.key === 'p' || e.key === 'P') {
+        togglePiP();
+      } else if (e.key === '?') {
+        setShortcutsOpen(o => !o);
       } else if ((e.key === 's' || e.key === 'S') && activeSkip) {
         executeSkip(activeSkip, false);
-      } else if (e.key === 'Escape' && !drawerOpen) {
-        navigateBack(`/title/${encodeURIComponent(provider)}/${encodeURIComponent(id)}`);
+      } else if (e.key === 'Escape') {
+        if (shortcutsOpen) setShortcutsOpen(false);
+        else if (drawerOpen) setDrawerOpen(false);
+        else navigateBack(`/title/${encodeURIComponent(provider)}/${encodeURIComponent(id)}`);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [togglePlay, seekBy, activeSkip, executeSkip, drawerOpen, provider, id]);
+  }, [
+    togglePlay,
+    seekBy,
+    activeSkip,
+    executeSkip,
+    drawerOpen,
+    shortcutsOpen,
+    toggleFullscreen,
+    togglePiP,
+    wakeHud,
+    provider,
+    id,
+  ]);
 
   const handleStreamError = useCallback(
     (msg: string) => {
       if (streamIdx + 1 < streams.length) {
         showToast(`Switching fallback stream (${streams[streamIdx + 1].quality})...`);
         setStreamIdx(idx => idx + 1);
+      } else if (availableVoices.length > 1) {
+        const curIdx = availableVoices.indexOf(selectedVoice);
+        const nextVoice = availableVoices[(curIdx + 1) % availableVoices.length];
+        if (nextVoice && nextVoice !== selectedVoice) {
+          showToast(`Switching fallback source (${nextVoice})...`);
+          setSelectedVoice(nextVoice);
+          setStreamIdx(0);
+          return;
+        }
+        setError(`${t('player.error')} (${msg})`);
       } else {
         setError(`${t('player.error')} (${msg})`);
       }
     },
-    [streamIdx, streams]
+    [streamIdx, streams, availableVoices, selectedVoice]
   );
 
   const openEpisode = (epId: string) => {
     setNextCountdown(false);
     setDrawerOpen(false);
     navigateTo(
-      `/watch/${encodeURIComponent(provider)}/${encodeURIComponent(id)}?ep=${encodeURIComponent(epId)}`
+      `/watch/${encodeURIComponent(provider)}/${encodeURIComponent(id)}?ep=${encodeURIComponent(epId)}&voice=${encodeURIComponent(selectedVoice)}`
     );
   };
 
   return (
-    <div class="player-stage" role="region" aria-label="Universal Video Player">
+    <div
+      class={`player-stage${hudHidden ? ' hud-hidden' : ''}`}
+      role="region"
+      aria-label="Universal Video Player"
+      onMouseMove={wakeHud}
+      onClick={wakeHud}
+    >
       <div class="player-top-chrome">
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <Button
@@ -271,20 +386,23 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           {activeStream && (
             <span class="mono-badge">
               {activeStream.quality} · {activeStream.format.toUpperCase()}
               {activeStream.relayed ? ' · RELAY' : ''}
             </span>
           )}
+          <Button variant="glass" onClick={() => setShortcutsOpen(o => !o)}>
+            ? {t('player.shortcuts')}
+          </Button>
           <Button variant="glass" onClick={() => setDrawerOpen(true)}>
             ☰ {t('detail.episodes')}
           </Button>
         </div>
       </div>
 
-      <div class="player-video-wrap">
+      <div class="player-video-wrap" onDblClick={toggleFullscreen}>
         {loading ? (
           <div style={{ color: 'var(--color-accent-soft)', fontWeight: 600 }}>
             {t('player.resolving')}
@@ -293,7 +411,13 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
           <EmptyState
             title={error || t('player.error')}
             action={
-              <Button variant="primary" onClick={() => setStreamIdx(0)}>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setError(null);
+                  setStreamIdx(0);
+                }}
+              >
                 {t('player.retry')}
               </Button>
             }
@@ -310,6 +434,9 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
             onPlayingChange={setPlaying}
             onEnded={() => {
               persistProgress(duration, duration, 'ended');
+              if (detail && activeEpisode) {
+                markEpisodeWatched(detail.item, activeEpisode.id);
+              }
               if (appSettings.value.autoNextEpisode && nextEpisode) {
                 setNextCountdown(true);
               }
@@ -354,19 +481,35 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
             {formatTime(position)}
           </span>
-          <input
-            type="range"
-            class="timeline-input"
-            min={0}
-            max={Math.max(1, duration)}
-            value={Math.min(position, duration || 1)}
-            aria-label="Seek timeline"
-            onInput={e => {
-              const next = Number((e.target as HTMLInputElement).value);
-              if (videoRef.current) videoRef.current.currentTime = next;
-              setPosition(next);
-            }}
-          />
+          <div class="timeline-wrap">
+            {duration > 0 && activeStream?.skips.length ? (
+              <div class="skip-marker-track" aria-hidden="true">
+                {activeStream.skips.map(s => (
+                  <span
+                    key={`${s.kind}:${s.from}`}
+                    class="skip-marker-seg"
+                    style={{
+                      left: `${Math.min(100, (s.from / duration) * 100)}%`,
+                      width: `${Math.max(1, ((s.to - s.from) / duration) * 100)}%`,
+                    }}
+                  />
+                ))}
+              </div>
+            ) : null}
+            <input
+              type="range"
+              class="timeline-input"
+              min={0}
+              max={Math.max(1, duration)}
+              value={Math.min(position, duration || 1)}
+              aria-label="Seek timeline"
+              onInput={e => {
+                const next = Number((e.target as HTMLInputElement).value);
+                if (videoRef.current) videoRef.current.currentTime = next;
+                setPosition(next);
+              }}
+            />
+          </div>
           <span
             style={{
               fontFamily: 'var(--font-mono)',
@@ -387,10 +530,15 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
             flexWrap: 'wrap',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             <Button variant="primary" onClick={togglePlay}>
               {playing ? `❚❚ ${t('player.pause')}` : `▶ ${t('player.play')}`}
             </Button>
+            {prevEpisode && (
+              <Button variant="glass" onClick={() => openEpisode(prevEpisode.id)}>
+                ← {t('player.prevEp')}
+              </Button>
+            )}
             <Button variant="glass" onClick={() => seekBy(-10)}>
               ↺ 10s
             </Button>
@@ -402,9 +550,46 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
                 {t('player.nextEp')} →
               </Button>
             )}
+            <Button variant="glass" onClick={() => setMuted(m => !m)}>
+              {muted || appSettings.value.volume === 0 ? '🔇' : '🔊'}
+            </Button>
+            <input
+              type="range"
+              class="volume-slider"
+              aria-label={t('player.volume')}
+              min={0}
+              max={1}
+              step={0.05}
+              value={muted ? 0 : appSettings.value.volume}
+              onInput={e => {
+                const v = Number((e.target as HTMLInputElement).value);
+                setMuted(v === 0);
+                updateSettings({ volume: v });
+              }}
+            />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {availableVoices.length > 1 && (
+              <select
+                class="filter-select"
+                aria-label={t('player.voice')}
+                value={selectedVoice}
+                onChange={e => {
+                  const v = (e.target as HTMLSelectElement).value;
+                  setSelectedVoice(v);
+                  setStreamIdx(0);
+                  showToast(`${t('player.voice')}: ${v}`);
+                }}
+              >
+                {availableVoices.map(v => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            )}
+
             {streams.length > 1 && (
               <ChoiceTabs
                 ariaLabel={t('player.quality')}
@@ -417,27 +602,24 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
                 options={streams.map((s, i) => ({ value: String(i), label: s.quality }))}
               />
             )}
+
             <ChoiceTabs
               ariaLabel={t('player.speed')}
               value={String(appSettings.value.playbackRate)}
               onChange={v => updateSettings({ playbackRate: Number(v) })}
               options={[
+                { value: '0.75', label: '0.75x' },
                 { value: '1', label: '1.0x' },
                 { value: '1.25', label: '1.25x' },
                 { value: '1.5', label: '1.5x' },
                 { value: '2', label: '2.0x' },
               ]}
             />
-            <Button
-              variant="glass"
-              onClick={() => {
-                if (!document.fullscreenElement) {
-                  void document.documentElement.requestFullscreen?.();
-                } else {
-                  void document.exitFullscreen?.();
-                }
-              }}
-            >
+
+            <Button variant="glass" onClick={togglePiP}>
+              ⧉ {t('player.pip')}
+            </Button>
+            <Button variant="glass" onClick={toggleFullscreen}>
               ⛶ {t('player.fullscreen')}
             </Button>
           </div>
@@ -445,25 +627,88 @@ export function UniversalPlayer({ provider, id, episodeId, onPlayback }: Univers
       </div>
 
       <Sidebar open={drawerOpen} title={t('detail.episodes')} onClose={() => setDrawerOpen(false)}>
-        {detail?.episodes.map(ep => (
-          <button
-            key={ep.id}
-            type="button"
-            class={`episode-row${ep.id === activeEpisode?.id ? ' active' : ''}`}
-            style={{ width: '100%', cursor: 'pointer', textAlign: 'left' }}
-            onClick={() => openEpisode(ep.id)}
-          >
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '13.5px' }}>
-                E{ep.number} · {ep.title}
+        {detail?.episodes.map(ep => {
+          const watched = isEpisodeWatched(provider, id, ep.id);
+          return (
+            <button
+              key={ep.id}
+              type="button"
+              class={`episode-row${ep.id === activeEpisode?.id ? ' active' : ''}`}
+              style={{ width: '100%', cursor: 'pointer', textAlign: 'left', padding: '10px 12px' }}
+              onClick={() => openEpisode(ep.id)}
+            >
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', minWidth: 0 }}>
+                {ep.thumbnailUrl && (
+                  <div
+                    style={{
+                      width: '74px',
+                      aspectRatio: '16/9',
+                      borderRadius: '6px',
+                      overflow: 'hidden',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <CachedImage src={ep.thumbnailUrl} alt={ep.title} />
+                  </div>
+                )}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '13px' }}>
+                    {watched ? '✓ ' : ''}E{ep.number} · {ep.title}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                    {ep.candidates.map(c => c.quality).join(' / ')}
+                  </div>
+                </div>
               </div>
-              <div style={{ fontSize: '11.5px', color: 'var(--color-text-muted)' }}>
-                {ep.candidates.map(c => c.quality).join(' / ')}
+            </button>
+          );
+        })}
+      </Sidebar>
+
+      {shortcutsOpen && (
+        <div class="lightbox-modal" onClick={() => setShortcutsOpen(false)}>
+          <div
+            class="panel"
+            style={{ maxWidth: '420px', width: '92vw' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 class="shelf-title" style={{ marginBottom: '12px' }}>
+              ⌨ {t('player.shortcuts')}
+            </h2>
+            <div class="facts-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <div class="fact-item">
+                <div class="fact-label">Space / K</div>
+                <div class="fact-value">Play / Pause</div>
+              </div>
+              <div class="fact-item">
+                <div class="fact-label">← / → / J / L</div>
+                <div class="fact-value">-10s / +10s</div>
+              </div>
+              <div class="fact-item">
+                <div class="fact-label">F</div>
+                <div class="fact-value">Fullscreen</div>
+              </div>
+              <div class="fact-item">
+                <div class="fact-label">P</div>
+                <div class="fact-value">Picture-in-Picture</div>
+              </div>
+              <div class="fact-item">
+                <div class="fact-label">M</div>
+                <div class="fact-value">Mute</div>
+              </div>
+              <div class="fact-item">
+                <div class="fact-label">S</div>
+                <div class="fact-value">Skip Intro / Outro</div>
               </div>
             </div>
-          </button>
-        ))}
-      </Sidebar>
+            <div style={{ marginTop: '16px', textAlign: 'right' }}>
+              <Button variant="primary" onClick={() => setShortcutsOpen(false)}>
+                {t('common.close')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

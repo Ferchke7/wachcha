@@ -1,6 +1,6 @@
-import { t } from '~/lib/i18n';
+import { isTauriRuntime } from '~/lib/desktop';
+import { t, type TranslationKey } from '~/lib/i18n';
 import { navigateTo } from '~/lib/navigation';
-import type { TranslationKey } from '~/lib/i18n';
 
 export interface MediaNavigationProps {
   currentRoute: string;
@@ -10,9 +10,12 @@ export interface MediaNavigationProps {
 
 const NAV_ITEMS: Array<{ route: string; labelKey: TranslationKey; icon: string }> = [
   { route: '/', labelKey: 'nav.home', icon: '⌂' },
-  { route: '/catalog?category=movie', labelKey: 'nav.movies', icon: '🎬' },
-  { route: '/catalog?category=turkish-dizi', labelKey: 'nav.dizis', icon: '📺' },
+  { route: '/tops', labelKey: 'nav.tops', icon: '🏆' },
+  { route: '/catalog', labelKey: 'nav.catalog', icon: '▤' },
+  { route: '/schedule', labelKey: 'nav.schedule', icon: '📅' },
   { route: '/catalog?category=anime', labelKey: 'nav.anime', icon: '✦' },
+  { route: '/catalog?category=turkish-dizi', labelKey: 'nav.dizis', icon: '📺' },
+  { route: '/catalog?category=movie', labelKey: 'nav.movies', icon: '🎬' },
   { route: '/search', labelKey: 'nav.search', icon: '⌕' },
   { route: '/library', labelKey: 'nav.library', icon: '★' },
   { route: '/sources', labelKey: 'nav.sources', icon: '⚡' },
@@ -22,6 +25,7 @@ const NAV_ITEMS: Array<{ route: string; labelKey: TranslationKey; icon: string }
 export function MediaNavigation({ currentRoute, providerCount, nativeMpv }: MediaNavigationProps) {
   const isActive = (route: string) => {
     if (route === '/') return currentRoute === '/' || currentRoute === '';
+    if (route === '/catalog') return currentRoute === '/catalog';
     return currentRoute.startsWith(route);
   };
 
@@ -66,7 +70,7 @@ export function MediaNavigation({ currentRoute, providerCount, nativeMpv }: Medi
             <span>{t('nav.providersOnline', { count: providerCount })}</span>
           </div>
           <div style={{ fontSize: '11.5px', color: 'var(--color-text-muted)' }}>
-            AniLiberty · TMDB · TVMaze · Rutube · Stremio
+            AniLiberty · Shikimori · IMDb · Rutube · TVMaze
           </div>
           <div
             style={{
@@ -77,16 +81,27 @@ export function MediaNavigation({ currentRoute, providerCount, nativeMpv }: Medi
           >
             {nativeMpv ? 'ENGINE: libmpv + Shaka' : 'ENGINE: Shaka HLS/DASH'}
           </div>
+          {!isTauriRuntime() && (
+            <a
+              href="https://github.com/Ferchke7/wachcha/releases/latest"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn btn-glass"
+              style={{ marginTop: '6px', padding: '6px 12px', fontSize: '11.5px' }}
+            >
+              ⬇ Desktop / APK
+            </a>
+          )}
         </div>
       </aside>
 
       <nav class="mobile-bottom-nav" aria-label="Mobile navigation">
         {[
           { route: '/', labelKey: 'nav.home' as TranslationKey },
-          { route: '/catalog?category=turkish-dizi', labelKey: 'nav.dizis' as TranslationKey },
+          { route: '/tops', labelKey: 'nav.tops' as TranslationKey },
+          { route: '/schedule', labelKey: 'nav.schedule' as TranslationKey },
           { route: '/search', labelKey: 'nav.search' as TranslationKey },
           { route: '/library', labelKey: 'nav.library' as TranslationKey },
-          { route: '/sources', labelKey: 'nav.sources' as TranslationKey },
         ].map(item => (
           <button
             key={item.route}

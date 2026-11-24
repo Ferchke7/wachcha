@@ -1,4 +1,7 @@
 export type MediaCategory = 'movie' | 'series' | 'turkish-dizi' | 'anime' | 'live-tv';
+export type TopsVertical =
+  'anime' | 'shikimori' | 'ongoing' | 'movie' | 'series' | 'turkish-dizi' | 'russian' | 'live-tv';
+export type SortMode = 'rating' | 'popular' | 'newest' | 'year';
 export type Locale = 'en' | 'ru' | 'tr';
 export type WatchStatus = 'watching' | 'planned' | 'completed' | 'on_hold' | 'dropped';
 export type PlaybackEngine = 'auto' | 'shaka' | 'libmpv';
@@ -29,6 +32,14 @@ export interface MediaItem {
   originalTitle?: string;
   year?: number;
   rating?: number;
+  rank?: number;
+  episodesCount?: number;
+  status?: string;
+  ageRating?: string;
+  country?: string;
+  studio?: string;
+  synopsis?: string;
+  airingInfo?: string;
   posterUrl?: string;
   backdropUrl?: string;
   genres: string[];
@@ -74,8 +85,25 @@ export interface Episode {
   title: string;
   durationSeconds?: number;
   thumbnailUrl?: string;
+  airDate?: string;
+  synopsis?: string;
   skips: SkipInterval[];
   candidates: StreamCandidate[];
+}
+
+export interface RatingStat {
+  score: number;
+  count: number;
+}
+
+export interface FranchiseEntry {
+  id: string;
+  provider: string;
+  title: string;
+  year?: number;
+  kind?: string;
+  posterUrl?: string;
+  active?: boolean;
 }
 
 export interface MediaDetail {
@@ -84,6 +112,19 @@ export interface MediaDetail {
   status?: string;
   voices: string[];
   episodes: Episode[];
+  backdropUrl?: string;
+  screenshots?: string[];
+  ratingStats?: RatingStat[];
+  votesCount?: number;
+  trailerYoutubeId?: string;
+  cast?: string[];
+  director?: string;
+  country?: string;
+  studio?: string;
+  ageRating?: string;
+  runtimeMinutes?: number;
+  franchise?: FranchiseEntry[];
+  similar?: MediaItem[];
 }
 
 export interface CatalogShelf {
@@ -92,6 +133,22 @@ export interface CatalogShelf {
   providerBadge: string;
   category: MediaCategory;
   items: MediaItem[];
+}
+
+export interface GenreOption {
+  id: string;
+  name: string;
+}
+
+export interface PagedResult {
+  items: MediaItem[];
+  page: number;
+  total: number;
+  hasMore: boolean;
+}
+
+export interface WeeklySchedule {
+  days: MediaItem[][];
 }
 
 export interface SearchQuery {
@@ -180,8 +237,11 @@ export interface LibraryEntry {
   posterUrl?: string;
   year?: number;
   rating?: number;
+  genres?: string[];
   status?: WatchStatus;
   favorite: boolean;
+  personalRating?: number;
+  watchedEpisodes?: string[];
   updatedAt: number;
 }
 

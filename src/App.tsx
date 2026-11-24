@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { getDesktopInfo, listProviders } from '~/lib/desktop';
+import { getDesktopInfo, isTauriRuntime, listProviders } from '~/lib/desktop';
 import { installKeyboardNavigation } from '~/lib/directional-navigation';
 import { locale, setLocale, t } from '~/lib/i18n';
 import {
   getScrollPosition,
   initNavigation,
+  navigateBack,
   navigateTo,
   navState,
   saveScrollPosition,
@@ -16,9 +17,11 @@ import { Detail } from './components/Detail';
 import { Home } from './components/Home';
 import { Library } from './components/Library';
 import { MediaNavigation } from './components/MediaNavigation';
+import { Schedule } from './components/Schedule';
 import { Search } from './components/Search';
 import { Settings } from './components/Settings';
 import { Sources } from './components/Sources';
+import { Tops } from './components/Tops';
 import { UniversalPlayer } from './components/UniversalPlayer';
 
 export function App() {
@@ -50,9 +53,9 @@ export function App() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = getScrollPosition(route);
-    return () => saveScrollPosition(route, el.scrollTop);
-  }, [route]);
+    el.scrollTop = getScrollPosition(fullPath);
+    return () => saveScrollPosition(fullPath, el.scrollTop);
+  }, [fullPath]);
 
   const watchMatch = /^\/watch\/([^/]+)\/([^/]+)$/.exec(route);
   if (watchMatch) {
@@ -62,6 +65,7 @@ export function App() {
           provider={decodeURIComponent(watchMatch[1])}
           id={decodeURIComponent(watchMatch[2])}
           episodeId={params.get('ep') || undefined}
+          voice={params.get('voice') || undefined}
         />
         <Toast />
       </>
@@ -80,22 +84,45 @@ export function App() {
 
       <div class="media-main">
         <header class="top-bar">
-          <form
-            class="top-search-wrap"
-            onSubmit={e => {
-              e.preventDefault();
-              navigateTo(`/search?q=${encodeURIComponent(quickQuery.trim())}`);
-            }}
-          >
-            <input
-              type="search"
-              class="top-search-input"
-              placeholder={t('search.placeholder')}
-              aria-label={t('search.placeholder')}
-              value={quickQuery}
-              onInput={e => setQuickQuery((e.target as HTMLInputElement).value)}
-            />
-          </form>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+            <div class="nav-history-btns">
+              <button
+                type="button"
+                class="icon-pill-btn"
+                title={t('detail.back')}
+                aria-label={t('detail.back')}
+                onClick={() => navigateBack('/')}
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                class="icon-pill-btn"
+                title="Forward"
+                aria-label="Forward"
+                onClick={() => window.history.forward()}
+              >
+                →
+              </button>
+            </div>
+
+            <form
+              class="top-search-wrap"
+              onSubmit={e => {
+                e.preventDefault();
+                navigateTo(`/search?q=${encodeURIComponent(quickQuery.trim())}`);
+              }}
+            >
+              <input
+                type="search"
+                class="top-search-input"
+                placeholder={t('search.placeholder')}
+                aria-label={t('search.placeholder')}
+                value={quickQuery}
+                onInput={e => setQuickQuery((e.target as HTMLInputElement).value)}
+              />
+            </form>
+          </div>
 
           <div class="top-right">
             <div class="locale-switch" role="group" aria-label={t('settings.language')}>
@@ -110,7 +137,7 @@ export function App() {
                 </button>
               ))}
             </div>
-            <span class="mono-badge">wachcha-media://</span>
+            <span class="mono-badge">{isTauriRuntime() ? 'wachcha-media://' : 'v0.0.1 LIVE'}</span>
           </div>
         </header>
 
@@ -120,6 +147,10 @@ export function App() {
               provider={decodeURIComponent(titleMatch[1])}
               id={decodeURIComponent(titleMatch[2])}
             />
+          ) : route === '/tops' ? (
+            <Tops initialVertical={params.get('vertical') || undefined} />
+          ) : route === '/schedule' ? (
+            <Schedule />
           ) : route === '/catalog' ? (
             <Catalog initialCategory={params.get('category') || undefined} />
           ) : route === '/search' ? (

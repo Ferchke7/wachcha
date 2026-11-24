@@ -4,8 +4,12 @@ import {
   continueEntries,
   getContinueEntry,
   getLibraryEntry,
+  getLibraryStats,
+  isEpisodeWatched,
   libraryEntries,
+  markEpisodeWatched,
   recordContinueProgress,
+  setPersonalRating,
   setWatchStatus,
   toggleFavorite,
 } from '~/lib/library';
@@ -70,5 +74,21 @@ describe('local library & continue watching', () => {
     });
     expect(continueEntries.value).toHaveLength(1);
     expect(getContinueEntry('aniliberty', 'frieren')?.position).toBe(340);
+  });
+
+  it('tracks personal 1-10 ratings, watched episodes, and library statistics', () => {
+    setPersonalRating(sampleItem, 9);
+    markEpisodeWatched(sampleItem, 'ep-1');
+    markEpisodeWatched(sampleItem, 'ep-2');
+
+    expect(getLibraryEntry('aniliberty', 'frieren')?.personalRating).toBe(9);
+    expect(isEpisodeWatched('aniliberty', 'frieren', 'ep-1')).toBe(true);
+    expect(isEpisodeWatched('aniliberty', 'frieren', 'ep-3')).toBe(false);
+
+    const stats = getLibraryStats();
+    expect(stats.totalTitles).toBe(1);
+    expect(stats.watchedEpisodesCount).toBe(2);
+    expect(stats.averageRating).toBe(9);
+    expect(stats.topGenres[0]?.name).toBe('Fantasy');
   });
 });

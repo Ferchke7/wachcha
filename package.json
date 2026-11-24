@@ -15,6 +15,7 @@
     "build": "tauri build",
     "build:android": "tauri android build --apk",
     "dev:web": "vite --host 127.0.0.1 --port 4179",
+    "start:server": "node server/index.mjs",
     "build:web": "tsc -b && vite build",
     "build:pages": "node scripts/build-pages.mjs",
     "preview": "vite preview --host 127.0.0.1 --port 4179",

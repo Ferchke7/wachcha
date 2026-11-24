@@ -13,7 +13,7 @@
 [![Platforms](https://img.shields.io/badge/Platforms-Windows%20%C2%B7%20Android%20%2F%20TV%20%C2%B7%20macOS%20%C2%B7%20Linux%20%C2%B7%20PWA-18112D?style=flat-square)](#downloads-v001)
 [![i18n](https://img.shields.io/badge/Languages-EN%20%C2%B7%20RU%20%C2%B7%20TR-FBBF24?style=flat-square)](#highlights)
 
-[**Download Portal**](https://ferchke7.github.io/wachcha/) · [**Launch Web App (PWA)**](https://ferchke7.github.io/wachcha/app/) · [**Releases (`v0.0.1`)**](https://github.com/Ferchke7/wachcha/releases/tag/v0.0.1) · [**Figma Design System**](https://www.figma.com/design/tE1dNJZTKeqsAfyIXDKtH6)
+[**Live Web App (`wachcha.codeguru.ovh`)**](https://wachcha.codeguru.ovh) · [**Download Portal**](https://ferchke7.github.io/wachcha/) · [**Releases (`v0.0.1`)**](https://github.com/Ferchke7/wachcha/releases/tag/v0.0.1) · [**Figma Design System**](https://www.figma.com/design/tE1dNJZTKeqsAfyIXDKtH6)
 
 </div>
 

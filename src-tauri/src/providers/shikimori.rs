@@ -5,8 +5,8 @@ use crate::providers::{ExternalIds, MediaCategory, MediaDetail, MediaItem, Sourc
 use reqwest::Client;
 use serde_json::Value;
 
-pub const BASE_URL: &str = "https://shikimori.one/api";
-const ORIGIN: &str = "https://shikimori.one";
+pub const BASE_URL: &str = "https://shikimori.io/api";
+const ORIGIN: &str = "https://shikimori.io";
 
 pub fn parse_anime_item(val: &Value, locale: &str) -> Option<MediaItem> {
     let id = val.get("id")?.as_u64()?;

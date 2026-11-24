@@ -11,6 +11,9 @@ export default defineConfig({
   clearScreen: false,
   server: {
     watch: { ignored: ['**/src-tauri/**'] },
+    proxy: {
+      '/api': 'http://127.0.0.1:8080',
+    },
   },
   build: {
     ...(process.env.TAURI_ENV_PLATFORM === 'android'

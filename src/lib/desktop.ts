@@ -1,22 +1,31 @@
 /**
- * Unified Tauri v2 IPC + Web preview bridge.
- * Inside Tauri desktop/TV builds, all provider calls execute in-process in Rust.
- * In browser preview (`npm run dev:web`), keyless CORS-friendly endpoints remain usable.
+ * Unified Tauri v2 IPC + Wachcha Web API Gateway + Direct Web Fallback bridge.
+ * - Inside Tauri desktop/APK builds: calls native Rust IPC commands directly.
+ * - When deployed with Wachcha Server (e.g. https://wachcha.codeguru.ovh) or configured via
+ *   VITE_API_BASE: uses `/api/*` for full multi-vertical catalogs, Tops, Schedule, rich Detail,
+ *   and CORS-safe allowlisted HLS/Image relays.
+ * - On static-only hosting: falls back seamlessly to CORS-friendly AniLiberty & TVMaze APIs.
  */
 
 import { invoke } from '@tauri-apps/api/core';
 import type {
   CatalogShelf,
   DesktopInfo,
+  GenreOption,
   Locale,
+  MediaCategory,
   MediaDetail,
   MediaItem,
+  PagedResult,
   ProviderHealth,
   ProviderInfo,
   SearchQuery,
   SearchResponse,
+  SortMode,
   StreamCandidate,
   StreamResolution,
+  TopsVertical,
+  WeeklySchedule,
 } from './types';
 
 const WEB_ADDONS_KEY = 'wachcha:web-addons';
@@ -36,6 +45,70 @@ export function translateMediaUrl(uri: string): string {
   return uri;
 }
 
+function getApiBase(): string {
+  const envBase = import.meta.env?.VITE_API_BASE as string | undefined;
+  if (envBase) return envBase.replace(/\/$/, '');
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    // GitHub Pages static preview automatically delegates API traffic to wachcha.codeguru.ovh
+    if (host.endsWith('github.io')) {
+      return 'https://wachcha.codeguru.ovh';
+    }
+  }
+  return '';
+}
+
+let serverAvailable: boolean | null = null;
+
+async function apiFetchJson<T>(path: string, init?: RequestInit): Promise<T | null> {
+  if (typeof fetch === 'undefined') return null;
+  if (serverAvailable === false) return null;
+  const base = getApiBase();
+  try {
+    const resp = await fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        Accept: 'application/json',
+        ...(init?.headers || {}),
+      },
+    });
+    if (!resp.ok) return null;
+    const ct = resp.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      if (!base) serverAvailable = false;
+      return null;
+    }
+    serverAvailable = true;
+    const data = (await resp.json()) as T;
+    if (base && data) {
+      return rewriteRelativeAssetUrls(data, base);
+    }
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function rewriteRelativeAssetUrls<T>(value: T, base: string): T {
+  if (typeof value === 'string') {
+    if (value.startsWith('/api/img?') || value.startsWith('/api/hls?')) {
+      return `${base}${value}` as unknown as T;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(v => rewriteRelativeAssetUrls(v, base)) as unknown as T;
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = rewriteRelativeAssetUrls(v, base);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 const DEFAULT_WEB_PROVIDERS: ProviderInfo[] = [
   {
     id: 'aniliberty',
@@ -51,57 +124,45 @@ const DEFAULT_WEB_PROVIDERS: ProviderInfo[] = [
   },
   {
     id: 'shikimori',
-    name: 'Shikimori Public API',
-    description: 'Keyless RU/EN anime metadata, ratings, genres & MAL ID reconciliation.',
+    name: 'Shikimori Top-100 & Stats',
+    description: 'Keyless RU/EN anime rankings, 1–10 score histograms, screenshots & MAL IDs.',
     categories: ['anime'],
     enabled: true,
     requiresKey: false,
     keyConfigured: true,
     keyless: true,
-    streamCapable: false,
+    streamCapable: true,
     kind: 'native',
   },
   {
-    id: 'yummy_public',
-    name: 'YummyAnime Public API',
-    description: 'Anime catalog & schedules with automatic 5s mirror failover.',
-    categories: ['anime'],
+    id: 'cinemeta',
+    name: 'IMDb Cinemeta Catalog',
+    description: 'Keyless Top-250 Movies & World TV Series with HD backdrops, trailers & seasons.',
+    categories: ['movie', 'series'],
     enabled: true,
     requiresKey: false,
     keyConfigured: true,
     keyless: true,
-    streamCapable: false,
+    streamCapable: true,
     kind: 'native',
   },
   {
-    id: 'tmdb',
-    name: 'TMDB v3 Multilingual',
-    description: 'Movies, Russian Cinema (RU), and Turkish Dizis (TR) localized in EN/RU/TR.',
+    id: 'rutube',
+    name: 'Rutube Free HD Cinema',
+    description: 'Free Russian movies, classic cinema & Russian-dubbed Turkish series via HLS.',
     categories: ['movie', 'series', 'turkish-dizi'],
     enabled: true,
-    requiresKey: true,
-    keyConfigured: Boolean(import.meta.env?.VITE_TMDB_API_KEY),
-    keyless: false,
-    streamCapable: false,
+    requiresKey: false,
+    keyConfigured: true,
+    keyless: true,
+    streamCapable: true,
     kind: 'native',
   },
   {
     id: 'tvmaze',
     name: 'TVMaze Open Catalog',
-    description: 'Keyless global TV & Turkish broadcast networks (TRT 1, ATV, Kanal D, Star TV).',
+    description: 'Keyless global TV & Turkish broadcast networks with episodes & cast.',
     categories: ['series', 'turkish-dizi'],
-    enabled: true,
-    requiresKey: false,
-    keyConfigured: true,
-    keyless: true,
-    streamCapable: false,
-    kind: 'native',
-  },
-  {
-    id: 'rutube',
-    name: 'Rutube Public Catalog',
-    description: 'Free Russian movies, classic Mosfilm channels & public HLS streams.',
-    categories: ['movie', 'series'],
     enabled: true,
     requiresKey: false,
     keyConfigured: true,
@@ -112,94 +173,38 @@ const DEFAULT_WEB_PROVIDERS: ProviderInfo[] = [
   {
     id: 'turkish_channels',
     name: 'Turkish Official Broadcasters',
-    description: 'Curated Turkish dizi hub (TRT 1, ATV, Star TV, Show TV) with IMDb/TMDB IDs.',
+    description: 'Top Turkish dizis (TRT 1, ATV, Star TV, Show TV, Kanal D) + Rutube RU dubs.',
     categories: ['turkish-dizi'],
     enabled: true,
     requiresKey: false,
     keyConfigured: true,
     keyless: true,
-    streamCapable: false,
+    streamCapable: true,
     kind: 'native',
   },
-];
-
-const CURATED_DIZIS: MediaItem[] = [
   {
-    id: 'tr-kurulus-osman',
-    provider: 'turkish_channels',
-    category: 'turkish-dizi',
-    title: 'Kuruluş: Osman',
-    originalTitle: 'Kuruluş: Osman',
-    year: 2019,
-    rating: 8.6,
-    genres: ['History', 'Action', 'Drama'],
-    badges: ['ATV TR', 'Dizi'],
-    audioLanguages: ['TR', 'RU'],
-    externalIds: { imdb: 'tt11093750', tmdb: 95594 },
-    streamReady: false,
-    sources: [{ provider: 'turkish_channels', id: 'tr-kurulus-osman', label: 'ATV Official' }],
+    id: 'livetv',
+    name: 'Free-to-Air Live TV',
+    description: 'Official open HLS broadcasts (TRT 1, TRT World, TRT Haber, DW, NHK, Red Bull).',
+    categories: ['live-tv'],
+    enabled: true,
+    requiresKey: false,
+    keyConfigured: true,
+    keyless: true,
+    streamCapable: true,
+    kind: 'native',
   },
   {
-    id: 'tr-yali-capkini',
-    provider: 'turkish_channels',
-    category: 'turkish-dizi',
-    title: 'Yalı Çapkını',
-    originalTitle: 'Yalı Çapkını',
-    year: 2022,
-    rating: 8.3,
-    genres: ['Drama', 'Romance'],
-    badges: ['Star TV', 'Dizi'],
-    audioLanguages: ['TR', 'RU'],
-    externalIds: { imdb: 'tt21431986', tmdb: 211089 },
-    streamReady: false,
-    sources: [{ provider: 'turkish_channels', id: 'tr-yali-capkini', label: 'Star TV Official' }],
-  },
-  {
-    id: 'tr-kizilcik-serbeti',
-    provider: 'turkish_channels',
-    category: 'turkish-dizi',
-    title: 'Kızılcık Şerbeti',
-    originalTitle: 'Kızılcık Şerbeti',
-    year: 2022,
-    rating: 8.4,
-    genres: ['Drama', 'Family'],
-    badges: ['Show TV', 'Dizi'],
-    audioLanguages: ['TR', 'RU'],
-    externalIds: { imdb: 'tt22297608', tmdb: 213173 },
-    streamReady: false,
-    sources: [
-      { provider: 'turkish_channels', id: 'tr-kizilcik-serbeti', label: 'Show TV Official' },
-    ],
-  },
-  {
-    id: 'tr-muhtesem-yuzyil',
-    provider: 'turkish_channels',
-    category: 'turkish-dizi',
-    title: 'Muhteşem Yüzyıl',
-    originalTitle: 'Muhteşem Yüzyıl',
-    year: 2011,
-    rating: 8.8,
-    genres: ['History', 'Drama'],
-    badges: ['Star TV Classic', 'Dizi'],
-    audioLanguages: ['TR', 'RU'],
-    externalIds: { imdb: 'tt1848620', tmdb: 46061 },
-    streamReady: false,
-    sources: [{ provider: 'turkish_channels', id: 'tr-muhtesem-yuzyil', label: 'Classic TR' }],
-  },
-  {
-    id: 'tr-teskilat',
-    provider: 'turkish_channels',
-    category: 'turkish-dizi',
-    title: 'Teşkilat',
-    originalTitle: 'Teşkilat',
-    year: 2021,
-    rating: 8.2,
-    genres: ['Action', 'Thriller'],
-    badges: ['TRT 1', 'Dizi'],
-    audioLanguages: ['TR', 'RU'],
-    externalIds: { imdb: 'tt13711618', tmdb: 119316 },
-    streamReady: false,
-    sources: [{ provider: 'turkish_channels', id: 'tr-teskilat', label: 'TRT 1 Official' }],
+    id: 'tmdb',
+    name: 'TMDB v3 Multilingual',
+    description: 'Optional API key for extended EN/RU/TR movie & dizi localization.',
+    categories: ['movie', 'series', 'turkish-dizi'],
+    enabled: true,
+    requiresKey: true,
+    keyConfigured: Boolean(import.meta.env?.VITE_TMDB_API_KEY),
+    keyless: false,
+    streamCapable: false,
+    kind: 'native',
   },
 ];
 
@@ -209,7 +214,7 @@ export async function getDesktopInfo(): Promise<DesktopInfo> {
   }
   return {
     platform: 'web',
-    version: '0.1.0',
+    version: '0.0.1',
     nativeVideo: { available: false, shaders: ['off'] },
   };
 }
@@ -321,27 +326,34 @@ export async function checkProviderHealth(): Promise<ProviderHealth[]> {
   if (isTauriRuntime()) {
     return invoke<ProviderHealth[]>('check_provider_health');
   }
+  const start = Date.now();
+  const health = await apiFetchJson<{ ok: boolean; providers: string[]; cacheEntries: number }>(
+    '/api/health'
+  );
+  const latencyMs = Date.now() - start;
+  if (health?.ok) {
+    return health.providers.map(provider => ({
+      provider,
+      activeMirror: getApiBase() || window.location.origin,
+      healthy: true,
+      latencyMs,
+      detail: `Gateway online (${health.cacheEntries} cached)`,
+    }));
+  }
   return [
     {
       provider: 'aniliberty',
       activeMirror: 'https://aniliberty.top/api/v1',
       healthy: true,
       latencyMs: 42,
-      detail: 'Web preview ready',
+      detail: 'Direct CORS preview',
     },
     {
       provider: 'tvmaze',
       activeMirror: 'https://api.tvmaze.com',
       healthy: true,
       latencyMs: 55,
-      detail: 'Web preview ready',
-    },
-    {
-      provider: 'turkish_channels',
-      activeMirror: 'local://registry',
-      healthy: true,
-      latencyMs: 1,
-      detail: 'Curated directory',
+      detail: 'Direct CORS preview',
     },
   ];
 }
@@ -350,9 +362,15 @@ export async function getHomeShelves(locale: Locale): Promise<CatalogShelf[]> {
   if (isTauriRuntime()) {
     return invoke<CatalogShelf[]>('get_home_shelves', { locale });
   }
+  const viaServer = await apiFetchJson<CatalogShelf[]>(
+    `/api/home?locale=${encodeURIComponent(locale)}`
+  );
+  if (viaServer && viaServer.length > 0) return viaServer;
+
+  // Direct CORS-safe fallback when offline from Wachcha API Gateway
   const shelves: CatalogShelf[] = [];
   try {
-    const resp = await fetch('https://aniliberty.top/api/v1/anime/releases/latest?limit=10');
+    const resp = await fetch('https://aniliberty.top/api/v1/anime/releases/latest?limit=12');
     if (resp.ok) {
       const rows = (await resp.json()) as Array<{
         id: number;
@@ -376,7 +394,7 @@ export async function getHomeShelves(locale: Locale): Promise<CatalogShelf[]> {
               : `https://aniliberty.top${poster}`
             : undefined,
           genres: [],
-          badges: ['AniLiberty', 'HLS', 'RU Dub'],
+          badges: ['AniLiberty', '1080p HLS', 'RU Dub'],
           audioLanguages: ['RU'],
           externalIds: { aniliberty: r.id },
           streamReady: true,
@@ -396,16 +414,188 @@ export async function getHomeShelves(locale: Locale): Promise<CatalogShelf[]> {
   } catch {
     // Graceful offline fallback.
   }
-
-  shelves.push({
-    id: 'turkish-dizis',
-    titleKey: 'shelf.turkishDizis',
-    providerBadge: 'TMDB TR · Official Broadcasters',
-    category: 'turkish-dizi',
-    items: CURATED_DIZIS,
-  });
-
   return shelves;
+}
+
+export async function getTops(opts: {
+  vertical: TopsVertical;
+  page?: number;
+  sort?: SortMode;
+  genre?: string;
+  year?: string;
+  minRating?: number;
+}): Promise<PagedResult> {
+  const params = new URLSearchParams();
+  params.set('vertical', opts.vertical);
+  params.set('page', String(opts.page || 1));
+  if (opts.sort) params.set('sort', opts.sort);
+  if (opts.genre) params.set('genre', opts.genre);
+  if (opts.year) params.set('year', opts.year);
+  if (opts.minRating && opts.minRating > 0) params.set('minRating', String(opts.minRating));
+
+  if (!isTauriRuntime()) {
+    const viaServer = await apiFetchJson<PagedResult>(`/api/tops?${params.toString()}`);
+    if (viaServer) return viaServer;
+  }
+
+  // Fallback for desktop / static-only mode: leverage AniLiberty & home shelves
+  if (opts.vertical === 'anime' || opts.vertical === 'ongoing') {
+    const sortKey = opts.sort === 'newest' ? 'FRESH_AT_DESC' : 'RATING_DESC';
+    const alParams = new URLSearchParams({
+      limit: '24',
+      page: String(opts.page || 1),
+      'f[sorting]': sortKey,
+    });
+    if (opts.vertical === 'ongoing') alParams.set('f[publish_statuses]', 'IS_ONGOING');
+    const resp = await fetch(
+      `https://aniliberty.top/api/v1/anime/catalog/releases?${alParams.toString()}`
+    );
+    if (resp.ok) {
+      const json = await resp.json();
+      const rows = Array.isArray(json?.data) ? json.data : [];
+      const offset = ((opts.page || 1) - 1) * 24;
+      return {
+        items: rows.map((r: Record<string, unknown>, i: number) => {
+          const name = r.name as { main?: string; english?: string } | undefined;
+          const posterObj = r.poster as { optimized?: { src?: string }; src?: string } | undefined;
+          const p = posterObj?.optimized?.src || posterObj?.src;
+          const alias = String(r.alias || r.id);
+          return {
+            id: alias,
+            provider: 'aniliberty',
+            category: 'anime' as const,
+            title: name?.main || name?.english || alias,
+            originalTitle: name?.english,
+            year: typeof r.year === 'number' ? r.year : undefined,
+            rank: offset + i + 1,
+            posterUrl: p ? (p.startsWith('http') ? p : `https://aniliberty.top${p}`) : undefined,
+            genres: [],
+            badges: ['AniLiberty', '1080p HLS'],
+            audioLanguages: ['RU'],
+            externalIds: { aniliberty: Number(r.id) || undefined },
+            streamReady: true,
+            sources: [{ provider: 'aniliberty', id: alias, label: 'AniLiberty' }],
+          };
+        }),
+        page: opts.page || 1,
+        total: Number(json?.meta?.pagination?.total || rows.length),
+        hasMore:
+          Number(json?.meta?.pagination?.current_page || 1) <
+          Number(json?.meta?.pagination?.total_pages || 1),
+      };
+    }
+  }
+
+  const shelves = await getHomeShelves('ru');
+  const catMap: Record<string, MediaCategory | undefined> = {
+    movie: 'movie',
+    russian: 'movie',
+    series: 'series',
+    'turkish-dizi': 'turkish-dizi',
+    'live-tv': 'live-tv',
+  };
+  const targetCat = catMap[opts.vertical];
+  const list = shelves
+    .filter(s => !targetCat || s.category === targetCat)
+    .flatMap(s => s.items)
+    .map((item, idx) => ({ ...item, rank: idx + 1 }));
+  return { items: list, page: 1, total: list.length, hasMore: false };
+}
+
+export async function getCatalog(opts: {
+  category: 'all' | MediaCategory;
+  page?: number;
+  sort?: SortMode;
+  genre?: string;
+  year?: string;
+  minRating?: number;
+}): Promise<PagedResult> {
+  const params = new URLSearchParams();
+  params.set('category', opts.category);
+  params.set('page', String(opts.page || 1));
+  if (opts.sort) params.set('sort', opts.sort);
+  if (opts.genre) params.set('genre', opts.genre);
+  if (opts.year) params.set('year', opts.year);
+  if (opts.minRating && opts.minRating > 0) params.set('minRating', String(opts.minRating));
+
+  if (!isTauriRuntime()) {
+    const viaServer = await apiFetchJson<PagedResult>(`/api/catalog?${params.toString()}`);
+    if (viaServer) return viaServer;
+  }
+
+  if (opts.category !== 'all') {
+    return getTops({
+      vertical: opts.category as TopsVertical,
+      page: opts.page,
+      sort: opts.sort,
+      genre: opts.genre,
+      year: opts.year,
+      minRating: opts.minRating,
+    });
+  }
+  const shelves = await getHomeShelves('ru');
+  const items = shelves.flatMap(s => s.items);
+  return { items, page: 1, total: items.length, hasMore: false };
+}
+
+export async function getGenres(category: string): Promise<GenreOption[]> {
+  if (!isTauriRuntime()) {
+    const viaServer = await apiFetchJson<GenreOption[]>(
+      `/api/genres?category=${encodeURIComponent(category)}`
+    );
+    if (viaServer) return viaServer;
+  }
+  return ['Action', 'Drama', 'Comedy', 'Fantasy', 'Thriller', 'Sci-Fi', 'Romance', 'History'].map(
+    name => ({ id: name, name })
+  );
+}
+
+export async function getWeeklySchedule(): Promise<WeeklySchedule> {
+  if (!isTauriRuntime()) {
+    const viaServer = await apiFetchJson<WeeklySchedule>('/api/schedule');
+    if (viaServer) return viaServer;
+  }
+  const days: MediaItem[][] = [[], [], [], [], [], [], []];
+  try {
+    const resp = await fetch('https://aniliberty.top/api/v1/anime/schedule/week');
+    if (resp.ok) {
+      const rows = (await resp.json()) as Array<{
+        release?: Record<string, unknown>;
+        published_release_episode?: { ordinal?: number };
+      }>;
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const r = row.release || (row as Record<string, unknown>);
+        const dayVal = Number((r.publish_day as { value?: number } | undefined)?.value || 1);
+        const idx = Math.max(0, Math.min(6, dayVal - 1));
+        const name = r.name as { main?: string; english?: string } | undefined;
+        const posterObj = r.poster as { optimized?: { src?: string }; src?: string } | undefined;
+        const p = posterObj?.optimized?.src || posterObj?.src;
+        const alias = String(r.alias || r.id || '');
+        if (!alias) continue;
+        days[idx].push({
+          id: alias,
+          provider: 'aniliberty',
+          category: 'anime',
+          title: name?.main || name?.english || alias,
+          originalTitle: name?.english,
+          year: typeof r.year === 'number' ? r.year : undefined,
+          airingInfo: row.published_release_episode?.ordinal
+            ? `Ep ${row.published_release_episode.ordinal}`
+            : undefined,
+          posterUrl: p ? (p.startsWith('http') ? p : `https://aniliberty.top${p}`) : undefined,
+          genres: [],
+          badges: ['Ongoing', '1080p HLS'],
+          audioLanguages: ['RU'],
+          externalIds: { aniliberty: Number(r.id) || undefined },
+          streamReady: true,
+          sources: [{ provider: 'aniliberty', id: alias, label: 'AniLiberty' }],
+        });
+      }
+    }
+  } catch {
+    // Graceful empty fallback.
+  }
+  return { days };
 }
 
 export async function searchCatalog(query: SearchQuery): Promise<SearchResponse> {
@@ -415,23 +605,16 @@ export async function searchCatalog(query: SearchQuery): Promise<SearchResponse>
   const q = query.text.trim();
   if (!q) return { query: q, items: [], providerErrors: [] };
 
+  const params = new URLSearchParams({ q });
+  if (query.category) params.set('category', query.category);
+  if (query.locale) params.set('locale', query.locale);
+
+  const viaServer = await apiFetchJson<SearchResponse>(`/api/search?${params.toString()}`);
+  if (viaServer) return viaServer;
+
+  // Fallback direct search (AniLiberty + TVMaze)
   const items: MediaItem[] = [];
   const errors: string[] = [];
-
-  // Match curated Turkish dizis locally
-  const lower = q.toLowerCase();
-  for (const d of CURATED_DIZIS) {
-    if (
-      d.title.toLowerCase().includes(lower) ||
-      d.badges.some(b => b.toLowerCase().includes(lower)) ||
-      lower.includes('dizi') ||
-      lower.includes('turk')
-    ) {
-      items.push(d);
-    }
-  }
-
-  // Live keyless AniLiberty + TVMaze in browser preview
   await Promise.all([
     fetch(`https://aniliberty.top/api/v1/app/search/releases?query=${encodeURIComponent(q)}`)
       .then(r => (r.ok ? r.json() : []))
@@ -501,6 +684,11 @@ export async function getMediaDetail(
   if (isTauriRuntime()) {
     return invoke<MediaDetail>('get_media_detail', { provider, id, locale });
   }
+  const viaServer = await apiFetchJson<MediaDetail>(
+    `/api/detail/${encodeURIComponent(provider)}/${encodeURIComponent(id)}?locale=${encodeURIComponent(locale)}`
+  );
+  if (viaServer) return viaServer;
+
   if (provider === 'aniliberty') {
     const resp = await fetch(
       `https://aniliberty.top/api/v1/anime/releases/${encodeURIComponent(id)}`
@@ -529,6 +717,7 @@ export async function getMediaDetail(
         ordinal: number;
         name?: string;
         duration?: number;
+        preview?: { optimized?: { preview?: string }; preview?: string };
         opening?: { start?: number; stop?: number };
         ending?: { start?: number; stop?: number };
         hls_1080?: string;
@@ -564,12 +753,18 @@ export async function getMediaDetail(
             });
           }
         }
+        const thumb = ep.preview?.optimized?.preview || ep.preview?.preview;
         return {
           id: epId,
           season: 1,
           number: ep.ordinal,
           title: ep.name || `Episode ${ep.ordinal}`,
           durationSeconds: ep.duration,
+          thumbnailUrl: thumb
+            ? thumb.startsWith('http')
+              ? thumb
+              : `https://aniliberty.top${thumb}`
+            : undefined,
           skips,
           candidates,
         };
@@ -584,48 +779,36 @@ export async function getMediaDetail(
     };
   }
 
-  const foundDizi = CURATED_DIZIS.find(d => d.id === id);
-  if (foundDizi) {
-    return {
-      item: foundDizi,
-      synopsis: `${foundDizi.title} — Turkish television drama indexed with IMDb (${foundDizi.externalIds.imdb}) and TMDB (${foundDizi.externalIds.tmdb}). Install a Stremio stream addon in Sources to play localized streams.`,
-      status: 'Broadcast Catalog',
-      voices: ['Original (TR)', 'Russian Dub (Addon)'],
-      episodes: [
-        {
-          id: `${id}-s1e1`,
-          season: 1,
-          number: 1,
-          title: `${foundDizi.title} · Episode 1`,
-          durationSeconds: 7200,
-          skips: [],
-          candidates: [],
-        },
-      ],
-    };
-  }
-
-  throw new Error('Detail unavailable in web preview mode.');
+  throw new Error('Detail unavailable offline.');
 }
 
 export async function resolveStreams(candidates: StreamCandidate[]): Promise<StreamResolution> {
   if (isTauriRuntime()) {
     return invoke<StreamResolution>('resolve_streams', { candidates });
   }
+  const viaServer = await apiFetchJson<StreamResolution>('/api/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ candidates }),
+  });
+  if (viaServer && viaServer.streams.length > 0) return viaServer;
+
   return {
     provider: candidates[0]?.provider || 'web',
     episodeId: candidates[0]?.episodeId || '',
-    streams: candidates.map(c => ({
-      provider: c.provider,
-      quality: c.quality,
-      format: c.format,
-      url: c.url,
-      relayed: false,
-      sourceHost: new URL(c.url).hostname,
-      voiceLabel: c.voiceLabel,
-      skips: c.skips || [],
-      subtitles: c.subtitles || [],
-    })),
+    streams: candidates
+      .filter(c => c.url.startsWith('https://'))
+      .map(c => ({
+        provider: c.provider,
+        quality: c.quality,
+        format: c.format,
+        url: c.url,
+        relayed: false,
+        sourceHost: new URL(c.url).hostname,
+        voiceLabel: c.voiceLabel,
+        skips: c.skips || [],
+        subtitles: c.subtitles || [],
+      })),
   };
 }
 
